@@ -10,28 +10,30 @@ import { ConfirmDialog, Modal } from './Modal';
 import { TaskForm } from './TaskForm';
 
 /** Follow-ups in the order given, with complete / edit / delete on each row. */
-export function FollowUpList({ tasks, showCompany = true, showContact = true }: {
+export function FollowUpList({ tasks, showCompany = true, showContact = true, showApplication = true }: {
   tasks: Task[];
   showCompany?: boolean;
   showContact?: boolean;
+  showApplication?: boolean;
 }) {
   return (
     <ul className="divide-y divide-neutral-100">
       {tasks.map((t) => (
-        <FollowUpItem key={t.id} task={t} showCompany={showCompany} showContact={showContact} />
+        <FollowUpItem key={t.id} task={t} showCompany={showCompany} showContact={showContact} showApplication={showApplication} />
       ))}
     </ul>
   );
 }
 
-function FollowUpItem({ task, showCompany, showContact }: { task: Task; showCompany: boolean; showContact: boolean }) {
-  const { companyById, contactById, setTaskDone, deleteTask } = useData();
+function FollowUpItem({ task, showCompany, showContact, showApplication }: { task: Task; showCompany: boolean; showContact: boolean; showApplication: boolean }) {
+  const { companyById, contactById, applicationById, setTaskDone, deleteTask } = useData();
   const { notify } = useToast();
   const [modal, setModal] = useState<'edit' | 'delete' | null>(null);
   const done = task.status === 'done';
   const overdue = isOverdue(task);
   const company = task.companyId ? companyById.get(task.companyId) : undefined;
   const contact = task.contactId ? contactById.get(task.contactId) : undefined;
+  const application = showApplication && task.applicationId ? applicationById.get(task.applicationId) : undefined;
 
   async function toggle() {
     try {
@@ -96,6 +98,12 @@ function FollowUpItem({ task, showCompany, showContact }: { task: Task; showComp
             <>
               {' · '}
               <Link to={`/contacts/${contact.id}`} className="font-medium text-ivey-700 hover:underline">{fullName(contact)}</Link>
+            </>
+          )}
+          {application && (
+            <>
+              {' · '}
+              <Link to={`/applications/${application.id}`} className="font-medium text-ivey-700 hover:underline">{application.title}</Link>
             </>
           )}
         </p>

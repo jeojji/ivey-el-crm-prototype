@@ -4,7 +4,7 @@ import { useData } from '../state/DataContext';
 import { daysFromToday, todayDateString } from '../lib/dates';
 import { byDueAsc, fullName, matchesQuery } from '../lib/selectors';
 import type { Task } from '../types';
-import { Button, Card, EmptyState, PageHeader, SearchInput, inputClass } from '../components/ui';
+import { Button, Card, EmptyState, PageHeader, SearchInput, filterSelectClass } from '../components/ui';
 import { Modal } from '../components/Modal';
 import { TaskForm } from '../components/TaskForm';
 import { FollowUpList } from '../components/FollowUpList';
@@ -123,7 +123,7 @@ export function FollowUpsPage() {
 
       <div className="mb-4 flex flex-wrap items-center gap-3">
         <SearchInput value={query} onChange={setQuery} placeholder="Search follow-ups, companies or contacts" label="Search follow-ups" />
-        <select value={companyId} onChange={(e) => setCompanyId(e.target.value)} aria-label="Filter by company" className={`${inputClass} w-auto max-w-xs`}>
+        <select value={companyId} onChange={(e) => setCompanyId(e.target.value)} aria-label="Filter by company" className={`${filterSelectClass} max-w-xs`}>
           <option value="">All companies</option>
           {[...companies].sort((a, b) => a.name.localeCompare(b.name)).map((c) => (
             <option key={c.id} value={c.id}>{c.name}</option>

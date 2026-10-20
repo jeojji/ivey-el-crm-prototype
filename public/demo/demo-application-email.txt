@@ -1,0 +1,16 @@
+Subject: Student project idea for Aster Labs
+From: Mira Castellanos <mira.castellanos@asterlabs.example>
+To: EL Office <el-office@business-school.example>
+
+Hello,
+
+I'm Mira Castellanos, Director of Analytics at Aster Labs. We'd like to work with an MBA field project team in Winter 2027 to understand why small clinics stop using our booking software after the free trial.
+
+We can share anonymized usage data. Could you tell me how the application process works and when we would need to confirm?
+
+Best regards,
+Mira Castellanos
+Director of Analytics, Aster Labs
+mira.castellanos@asterlabs.example
+
+(Fictional demo email: all names and addresses are invented.)

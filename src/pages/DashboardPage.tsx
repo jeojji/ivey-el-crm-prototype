@@ -11,6 +11,8 @@ import { ActivityForm } from '../components/ActivityForm';
 import { ActivityTypeIcon } from '../components/ActivityTimeline';
 import { FollowUpList } from '../components/FollowUpList';
 import { TaskForm } from '../components/TaskForm';
+import { ApplicationForm, DeadlineText, StageBadge } from '../components/applications';
+import { DEADLINE_SOON_DAYS, deadlineState, isAwaitingReview, isClosed, termLabel } from '../lib/applications';
 
 function Stat({ label, value, sub, icon, to, alert }: { label: string; value: number; sub?: string; icon: IconName; to?: string; alert?: boolean }) {
   const body = (
@@ -28,8 +30,8 @@ function Stat({ label, value, sub, icon, to, alert }: { label: string; value: nu
 }
 
 export function DashboardPage() {
-  const { companies, contacts, activities, tasks, companyById, contactById } = useData();
-  const [modal, setModal] = useState<'company' | 'activity' | 'task' | null>(null);
+  const { companies, contacts, activities, tasks, applications, companyById, contactById } = useData();
+  const [modal, setModal] = useState<'company' | 'activity' | 'task' | 'application' | null>(null);
   const close = () => setModal(null);
 
   const now = Date.now();
@@ -43,6 +45,11 @@ export function DashboardPage() {
     .slice(0, 5);
   const recent = activities.filter((a) => !isFuture(a, now)).sort(byOccurredDesc).slice(0, 6);
   const activePartners = companies.filter((c) => c.statuses.includes('Active Partner')).length;
+  const openApps = applications.filter((a) => !isClosed(a));
+  const awaitingReview = applications.filter(isAwaitingReview).sort((a, b) => (a.confirmationDeadline || '9999').localeCompare(b.confirmationDeadline || '9999'));
+  const deadlines = applications
+    .filter((a) => ['soon', 'passed'].includes(deadlineState(a)))
+    .sort((a, b) => a.confirmationDeadline.localeCompare(b.confirmationDeadline));
   const last30 = activities.filter((a) => !isFuture(a, now) && now - new Date(a.occurredAt).getTime() <= 30 * 86_400_000).length;
 
   return (
@@ -54,14 +61,16 @@ export function DashboardPage() {
           <>
             <Button variant="secondary" icon="plus" onClick={() => setModal('company')}>Add company</Button>
             <Button variant="secondary" icon="plus" onClick={() => setModal('task')}>Add follow-up</Button>
+            <Button variant="secondary" icon="plus" onClick={() => setModal('application')}>Add application</Button>
             <Button icon="plus" onClick={() => setModal('activity')}>Log activity</Button>
           </>
         }
       />
 
-      <div className="mb-8 grid grid-cols-2 gap-4 xl:grid-cols-4">
+      <div className="mb-8 grid grid-cols-2 gap-4 lg:grid-cols-3 xl:grid-cols-5">
         <Stat label="Companies" value={companies.length} sub={`${activePartners} active partner${activePartners === 1 ? '' : 's'}`} icon="building" to="/companies" />
         <Stat label="Contacts" value={contacts.length} icon="users" to="/contacts" />
+        <Stat label="Open applications" value={openApps.length} sub={`${awaitingReview.length} awaiting review`} icon="briefcase" to="/applications?view=pipeline" />
         <Stat label="Activities, last 30 days" value={last30} icon="activity" to="/activity" />
         <Stat label="Overdue follow-ups" value={overdue.length} sub={`${dueSoon.length} more due in the next 7 days`} icon="alert" alert={overdue.length > 0} to="/follow-ups?view=overdue" />
       </div>
@@ -120,6 +129,52 @@ export function DashboardPage() {
           )}
         </Card>
 
+        <Card
+          title={<span className="flex items-center gap-2">Applications awaiting review{awaitingReview.length > 0 && <span className="rounded-full bg-violet-50 px-2 py-0.5 text-xs font-semibold text-violet-800">{awaitingReview.length}</span>}</span>}
+          action={<Link to="/applications?stage=__review" className="text-sm font-medium text-ivey-700 hover:underline">View all</Link>}
+        >
+          {awaitingReview.length === 0 ? (
+            <EmptyState compact icon="check" title="Nothing awaiting review" message="Applications at “Application submitted” or “Meeting completed” appear here." />
+          ) : (
+            <ul className="divide-y divide-neutral-100">
+              {awaitingReview.map((a) => (
+                <li key={a.id} className="flex items-start justify-between gap-3 py-3 first:pt-0 last:pb-0">
+                  <div className="min-w-0">
+                    <Link to={`/applications/${a.id}`} className="text-sm font-medium text-neutral-900 hover:text-ivey-700 hover:underline">{a.title}</Link>
+                    <p className="text-xs text-neutral-600">
+                      {[companyById.get(a.companyId)?.name, termLabel(a)].filter(Boolean).join(' · ')}
+                      {a.confirmationDeadline && <> · Deadline <DeadlineText application={a} short /></>}
+                    </p>
+                  </div>
+                  <StageBadge stage={a.stage} />
+                </li>
+              ))}
+            </ul>
+          )}
+        </Card>
+
+        <Card
+          title={<span className="flex items-center gap-2">Participation deadlines{deadlines.length > 0 && <span className="rounded-full bg-amber-50 px-2 py-0.5 text-xs font-semibold text-amber-800">{deadlines.length}</span>}</span>}
+          action={<Link to="/applications?stage=__deadlines" className="text-sm font-medium text-ivey-700 hover:underline">View all</Link>}
+        >
+          {deadlines.length === 0 ? (
+            <EmptyState compact icon="calendar" title={`No deadlines in the next ${DEADLINE_SOON_DAYS} days`} message="Confirmation deadlines for applications that aren't confirmed yet appear here." />
+          ) : (
+            <ul className="divide-y divide-neutral-100">
+              {deadlines.map((a) => (
+                <li key={a.id} className="flex items-start justify-between gap-3 py-3 first:pt-0 last:pb-0">
+                  <div className="min-w-0">
+                    <Link to={`/applications/${a.id}`} className="text-sm font-medium text-neutral-900 hover:text-ivey-700 hover:underline">{a.title}</Link>
+                    <p className="text-xs text-neutral-600">{companyById.get(a.companyId)?.name} · <DeadlineText application={a} /></p>
+                  </div>
+                  <StageBadge stage={a.stage} />
+                </li>
+              ))}
+            </ul>
+          )}
+          <p className="mt-4 text-xs text-neutral-500">Deadlines within {DEADLINE_SOON_DAYS} days, or already passed, for applications not yet at Team Confirmed.</p>
+        </Card>
+
         <Card title="Recent activity" action={<Link to="/activity" className="text-sm font-medium text-ivey-700 hover:underline">View all</Link>} className="xl:col-span-2">
           {recent.length === 0 ? (
             <EmptyState compact icon="activity" title="No activity yet" message="Logged emails, calls, meetings and notes will appear here." />
@@ -149,6 +204,9 @@ export function DashboardPage() {
 
       <Modal open={modal === 'company'} onClose={close} title="Add company" description="Fictional data only in this prototype." size="lg">
         <CompanyForm onSaved={close} onCancel={close} />
+      </Modal>
+      <Modal open={modal === 'application'} onClose={close} title="Add application" size="xl">
+        <ApplicationForm onSaved={close} onCancel={close} />
       </Modal>
       <Modal open={modal === 'task'} onClose={close} title="Add follow-up" size="lg">
         <TaskForm onSaved={close} onCancel={close} />

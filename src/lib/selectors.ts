@@ -58,3 +58,11 @@ export function matchesQuery(query: string, ...fields: (string | null | undefine
   if (!q) return true;
   return fields.some((f) => f?.toLowerCase().includes(q));
 }
+
+/**
+ * Most recent past email, call or meeting (notes aren't communication). Kept separate from a
+ * record's "Last project participated" date, which describes EL project involvement.
+ */
+export function lastCommunicationAt(activities: Activity[]): string | null {
+  return lastActivityAt(activities.filter((a) => a.type !== 'note'));
+}

@@ -1,4 +1,4 @@
-import { NavLink, Outlet } from 'react-router-dom';
+import { Link, NavLink, Outlet } from 'react-router-dom';
 import { Icon, type IconName } from './Icon';
 import { useData } from '../state/DataContext';
 import { UpgradeScreen } from './UpgradeScreen';
@@ -13,12 +13,27 @@ interface NavEntry {
   badge?: number;
 }
 
-const nav: NavEntry[] = [
-  { to: '/', label: 'Dashboard', icon: 'home', end: true },
-  { to: '/companies', label: 'Companies', icon: 'building' },
-  { to: '/contacts', label: 'Contacts', icon: 'users' },
-  { to: '/activity', label: 'Activity history', icon: 'activity' },
-  { to: '/follow-ups', label: 'Follow-ups', icon: 'task' },
+const sections: { heading?: string; items: NavEntry[] }[] = [
+  { items: [{ to: '/', label: 'Dashboard', icon: 'home', end: true }] },
+  {
+    heading: 'Relationships',
+    items: [
+      { to: '/companies', label: 'Companies', icon: 'building' },
+      { to: '/contacts', label: 'Contacts', icon: 'users' },
+      { to: '/applications', label: 'Applications', icon: 'briefcase' },
+      { to: '/campaigns', label: 'Campaigns', icon: 'megaphone' },
+    ],
+  },
+  {
+    heading: 'Day to day',
+    items: [
+      { to: '/follow-ups', label: 'Follow-ups', icon: 'task' },
+      { to: '/activity', label: 'Activity history', icon: 'activity' },
+      { to: '/emails/new', label: 'Add email', icon: 'mail' },
+      { to: '/prep', label: 'Conversation prep', icon: 'note' },
+    ],
+  },
+  { heading: 'Data', items: [{ to: '/import-export', label: 'Import & export', icon: 'upload' }] },
 ];
 
 function NavItem({ to, label, icon, end, badge }: NavEntry) {
@@ -57,8 +72,13 @@ export function Layout() {
         </div>
 
         <nav aria-label="Main" className="flex flex-row flex-wrap gap-1 px-3 lg:flex-1 lg:flex-col">
-          {nav.map((item) => (
-            <NavItem key={item.to} {...item} badge={item.to === '/follow-ups' ? overdueCount : undefined} />
+          {sections.map((section) => (
+            <div key={section.heading ?? 'main'} className="contents lg:block lg:pb-2">
+              {section.heading && <p className="hidden px-3 pt-3 pb-1 text-[11px] font-semibold tracking-wider text-ivey-200 uppercase lg:block">{section.heading}</p>}
+              {section.items.map((item) => (
+                <NavItem key={item.to} {...item} badge={item.to === '/follow-ups' ? overdueCount : undefined} />
+              ))}
+            </div>
           ))}
           <div className="my-3 hidden border-t border-white/10 lg:block" />
           <NavItem to="/about" label="Prototype & data" icon="database" />
@@ -70,6 +90,7 @@ export function Layout() {
             Prototype
           </p>
           Fictional data only. Saved in this browser. No email, Salesforce or calendar connections.
+          <Link to="/about#demo-data" className="mt-2 block font-medium text-white underline-offset-2 hover:underline">Reset demo data…</Link>
         </div>
       </aside>
 

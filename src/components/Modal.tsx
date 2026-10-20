@@ -1,4 +1,6 @@
 import { useEffect, useRef, type ReactNode } from 'react';
+
+const DISCARD_PROMPT = 'Discard the changes you’ve typed? They haven’t been saved.';
 import { Icon } from './Icon';
 import { Button } from './ui';
 
@@ -14,21 +16,33 @@ interface ModalProps {
 /** Accessible dialog built on the native <dialog> element (focus trap + Esc for free). */
 export function Modal({ open, onClose, title, description, children, size = 'md' }: ModalProps) {
   const ref = useRef<HTMLDialogElement>(null);
+  /** Set when anything is typed in the dialog, so closing with Esc or × asks before discarding it. */
+  const dirty = useRef(false);
 
   useEffect(() => {
     const dialog = ref.current;
     if (!dialog) return;
-    if (open && !dialog.open) dialog.showModal();
+    if (open && !dialog.open) {
+      dirty.current = false;
+      dialog.showModal();
+    }
     if (!open && dialog.open) dialog.close();
   }, [open]);
+
+  const requestClose = () => {
+    if (dirty.current && !window.confirm(DISCARD_PROMPT)) return;
+    onClose();
+  };
 
   return (
     <dialog
       ref={ref}
       onCancel={(e) => {
         e.preventDefault();
-        onClose();
+        requestClose();
       }}
+      onInputCapture={() => (dirty.current = true)}
+      onChangeCapture={() => (dirty.current = true)}
       aria-labelledby="modal-title"
       className={`m-auto max-h-[90vh] w-[calc(100%-2rem)] overflow-y-auto rounded-xl bg-white p-0 shadow-2xl backdrop:bg-neutral-950/40 ${size === 'xl' ? 'max-w-3xl' : size === 'lg' ? 'max-w-2xl' : 'max-w-lg'}`}
     >
@@ -41,7 +55,7 @@ export function Modal({ open, onClose, title, description, children, size = 'md'
             </div>
             <button
               type="button"
-              onClick={onClose}
+              onClick={requestClose}
               className="-mr-1 rounded-md p-1 text-neutral-500 hover:bg-neutral-100 hover:text-neutral-900"
               aria-label="Close dialog"
             >

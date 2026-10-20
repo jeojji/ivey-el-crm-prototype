@@ -13,16 +13,21 @@ import { ModalFooter } from './Modal';
 
 type Field = 'subject' | 'occurredAt' | 'link' | 'followUpTitle' | 'followUpDue';
 
-export function ActivityForm({ activity, defaultCompanyId, defaultContactId, onSaved, onCancel }: {
+export function ActivityForm({ activity, defaultCompanyId, defaultContactId, defaultApplicationId, onSaved, onCancel }: {
   activity?: Activity;
   defaultCompanyId?: string;
   defaultContactId?: string;
+  defaultApplicationId?: string;
   onSaved: (activity: Activity) => void;
   onCancel: () => void;
 }) {
   const { createActivity, updateActivity, createTask } = useData();
   const { notify } = useToast();
-  const initialLink = useInitialLink(activity ? activity.companyId : defaultCompanyId, activity ? activity.contactId : defaultContactId);
+  const initialLink = useInitialLink(
+    activity ? activity.companyId : defaultCompanyId,
+    activity ? activity.contactId : defaultContactId,
+    activity ? activity.applicationId : defaultApplicationId,
+  );
 
   const [type, setType] = useState<ActivityType>(activity?.type ?? 'meeting');
   const [subject, setSubject] = useState(activity?.subject ?? '');
@@ -63,6 +68,7 @@ export function ActivityForm({ activity, defaultCompanyId, defaultContactId, onS
       occurredAt: fromDateTimeLocalValue(occurredAt)!,
       companyId: link.companyId || null,
       contactId: link.contactId || null,
+      applicationId: link.applicationId || null,
     };
     try {
       const saved = activity ? await updateActivity(activity.id, input) : await createActivity({ ...input, source: 'manual' });
@@ -72,6 +78,7 @@ export function ActivityForm({ activity, defaultCompanyId, defaultContactId, onS
           dueDate: followUpDue,
           companyId: input.companyId,
           contactId: input.contactId,
+          applicationId: input.applicationId,
           notes: `From ${ACTIVITY_LABELS[type].toLowerCase()}: ${input.subject}`,
           status: 'open',
           completedAt: null,
@@ -131,7 +138,7 @@ export function ActivityForm({ activity, defaultCompanyId, defaultContactId, onS
               : undefined
           }
         />
-        <LinkFields value={link} onChange={setLink} error={errors.link} />
+        <LinkFields value={link} onChange={setLink} error={errors.link} withApplication />
         <TextAreaField className="col-span-2" label="Details" value={details} onChange={setDetails} rows={5} placeholder="What was discussed, decisions, next steps" />
       </div>
 
@@ -153,7 +160,7 @@ export function ActivityForm({ activity, defaultCompanyId, defaultContactId, onS
                 <TextField label="Due date" type="date" value={followUpDue} onChange={setFollowUpDue} required error={errors.followUpDue} hint={dueDateHint(followUpDue)} />
                 <DuePresets onPick={setFollowUpDue} />
               </div>
-              <p className="text-xs text-neutral-600">Linked to the same company and contact as this activity.</p>
+              <p className="text-xs text-neutral-600">Linked to the same company, contact and application as this activity.</p>
             </div>
           )}
         </div>

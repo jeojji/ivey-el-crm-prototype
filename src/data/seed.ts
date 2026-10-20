@@ -1,6 +1,7 @@
 import { addDays, toDateString } from '../lib/dates';
 import { NOT_ALUMNUS } from '../lib/options';
-import { SCHEMA_VERSION, type Activity, type ActivityType, type Company, type Contact, type Database, type Task } from '../types';
+import { emailFingerprint } from '../lib/email';
+import { SCHEMA_VERSION, type Activity, type ActivityType, type Application, type Campaign, type Company, type Contact, type Database, type Feedback, type Task } from '../types';
 
 // ALL DATA BELOW IS FICTIONAL. Organizations, people, emails (.example domains) and
 // phone numbers (555-01xx), addresses and linkedin.example profiles are invented for
@@ -236,6 +237,17 @@ export function createSampleDatabase(now = new Date()): Database {
       preferredContactMethod: 'Email', source: 'Business Development', alumniPrograms: ['MSc International Business'], graduationYear: 2020 }),
   ];
 
+  // Which sample activities and follow-ups belong to which sample application.
+  const applicationFor: Record<string, string> = {
+    'ac-01': 'ap-tallgrass-churn', 'tk-02': 'ap-tallgrass-churn', 'tk-07': 'ap-tallgrass-churn',
+    'ac-02': 'ap-harbourlight-brand', 'ac-13': 'ap-harbourlight-brand', 'tk-03': 'ap-harbourlight-brand',
+    'ac-05': 'ap-juniper-ops', 'ac-12': 'ap-juniper-ops', 'ac-15': 'ap-juniper-ops',
+    'ac-03': 'ap-copperfield-market', 'tk-05': 'ap-copperfield-market',
+    'ac-07': 'ap-bluewater-logistics', 'tk-01': 'ap-bluewater-logistics',
+    'ac-14': 'ap-granite-sprint', 'tk-04': 'ap-granite-sprint',
+    'ac-04': 'ap-fernhill-member', 'tk-06': 'ap-fernhill-member',
+  };
+
   const activity = (
     id: string,
     type: ActivityType,
@@ -250,6 +262,7 @@ export function createSampleDatabase(now = new Date()): Database {
     occurredAt,
     companyId,
     contactId,
+    applicationId: applicationFor[id] ?? null,
     subject,
     details,
     source: 'sample',
@@ -273,7 +286,36 @@ export function createSampleDatabase(now = new Date()): Database {
     activity('ac-12', 'meeting', at(2, 10, 30), 'co-juniper', 'ct-hana', 'Exploratory meeting with Juniper', 'Walk through program timeline, student team size and confidentiality expectations.'),
     activity('ac-13', 'meeting', at(5, 13), 'co-harbourlight', 'ct-ines', 'Proposal review with Harbourlight', 'Review proposal feedback and confirm winter-term timing.'),
     activity('ac-14', 'meeting', at(9, 11), 'co-granite', 'ct-ben', 'Mentor matching session', 'Match Granite Peak mentors with the incoming cohort.'),
+    // An email added through "Add email" (fictional): original text kept separately from notes.
+    {
+      ...activity('ac-15', 'email', at(-7, 16, 40), 'co-juniper', 'ct-hana', 'Re: Experiential learning projects', 'Hana is keen; wants to confirm team size before the exploratory meeting.'),
+      source: 'email-intake',
+      email: {
+        direction: 'received',
+        from: { name: 'Hana Kobayashi', email: 'hana.kobayashi@juniperhealth.example' },
+        to: 'EL Office <el-office@business-school.example>',
+        forwarded: false,
+        originalSender: null,
+        dateKnown: true,
+        originalText: [
+          'Hi,',
+          '',
+          'Thanks for the overview of the experiential learning program. We would like to explore a project on',
+          'patient intake across our three clinics next summer.',
+          '',
+          'Could you let me know the usual student team size before we meet?',
+          '',
+          'Best,',
+          'Hana Kobayashi',
+          'Chief Operating Officer, Juniper Health Collective (fictional)',
+        ].join('\n'),
+        fingerprint: '',
+      },
+      editHistory: [],
+    },
   ];
+  // Fingerprints are computed, not hand-written.
+  for (const a of activities) if (a.email) a.email.fingerprint = emailFingerprint(a.email.originalText);
 
   const task = (
     id: string,
@@ -290,6 +332,7 @@ export function createSampleDatabase(now = new Date()): Database {
     status,
     companyId,
     contactId,
+    applicationId: applicationFor[id] ?? null,
     notes,
     completedAt: status === 'done' ? addDays(now, dueOffset).toISOString() : null,
     createdAt: created,
@@ -307,5 +350,162 @@ export function createSampleDatabase(now = new Date()): Database {
     task('tk-08', 'Reply to Ruth about internship pipeline', -30, 'co-copperfield', 'ct-ruth', 'done'),
   ];
 
-  return { schemaVersion: SCHEMA_VERSION, companies, contacts, activities, tasks };
+  // Fictional sample applications (engagement opportunities). Stage history runs oldest → current.
+  type AppSeed = Omit<Application, 'createdAt' | 'updatedAt' | 'stageHistory' | 'stage' | 'confirmationDeadline'> & {
+    stages: [string, number][]; // [stage, day offset]
+    deadline: number | null;
+  };
+  const application = ({ stages, deadline, ...a }: AppSeed): Application => ({
+    ...a,
+    stage: stages[stages.length - 1][0],
+    confirmationDeadline: deadline === null ? '' : day(deadline),
+    stageHistory: stages.map(([stage, offset]) => ({ stage, changedAt: at(offset, 9) })),
+    createdAt: at(stages[0][1], 9),
+    updatedAt: at(stages[stages.length - 1][1], 9),
+  });
+
+  const applications: Application[] = [
+    application({
+      id: 'ap-tallgrass-churn', title: 'Customer churn prediction', companyId: 'co-tallgrass', primaryContactId: 'ct-tamsin',
+      projectType: 'MBA Ivey Field Project', program: 'MBA', termSeason: 'Winter', termYear: now.getFullYear() + 1,
+      scope: 'Build a model that flags subscription customers likely to cancel, and recommend retention offers. Tallgrass will share an anonymized sample dataset.',
+      notes: 'NDA template still to be confirmed with their legal team.',
+      stages: [['Identifying', -45], ['Outreach Sent', -38], ['Application submitted', -20], ['Meeting completed', -2], ['Project Approved', -1]],
+      deadline: 10,
+    }),
+    application({
+      id: 'ap-tallgrass-pricing', title: 'Retail pricing hackathon challenge', companyId: 'co-tallgrass', primaryContactId: 'ct-marcus',
+      projectType: 'MSc Hackathon', program: 'MSc', termSeason: 'Fall', termYear: now.getFullYear(),
+      scope: 'One-weekend challenge on dynamic pricing for a fictional retailer.',
+      notes: 'Team was fully booked for the fall. Marcus suggested trying again next year.',
+      stages: [['Identifying', -90], ['Outreach Sent', -80], ['Declined', -60]],
+      deadline: -65,
+    }),
+    application({
+      id: 'ap-harbourlight-brand', title: 'National brand refresh research', companyId: 'co-harbourlight', primaryContactId: 'ct-ines',
+      projectType: 'HBA Ivey Field Project', program: 'HBA', termSeason: 'Winter', termYear: now.getFullYear() + 1,
+      scope: 'Consumer research and positioning options for taking a regional food brand national.',
+      notes: 'Budget approval happens in their Q1 planning cycle.',
+      stages: [['Identifying', -35], ['Outreach Sent', -30], ['Application submitted', -1]],
+      deadline: 21,
+    }),
+    application({
+      id: 'ap-juniper-ops', title: 'Clinic operations improvement', companyId: 'co-juniper', primaryContactId: 'ct-hana',
+      projectType: 'Action Learning Project', program: 'MSc', termSeason: 'Summer', termYear: now.getFullYear() + 1,
+      scope: 'Map patient intake across three clinics and identify bottlenecks.',
+      notes: '',
+      stages: [['Identifying', -12], ['Outreach Sent', -8]],
+      deadline: 45,
+    }),
+    application({
+      id: 'ap-copperfield-market', title: 'Ontario market-entry research', companyId: 'co-copperfield', primaryContactId: 'ct-diego',
+      projectType: 'Research Project', program: 'CEMS', termSeason: 'Fall', termYear: now.getFullYear(),
+      scope: 'Assess demand, regulation and partners for entering the Ontario solar and storage market.',
+      notes: 'Diego would like the final presentation in person.',
+      stages: [['Identifying', -150], ['Outreach Sent', -140], ['Application submitted', -120], ['Meeting completed', -110], ['Project Approved', -100], ['Team Confirmed', -70], ['Active', -45]],
+      deadline: -75,
+    }),
+    application({
+      id: 'ap-bluewater-logistics', title: 'Cross-border logistics analytics', companyId: 'co-bluewater', primaryContactId: 'ct-claire',
+      projectType: 'Other Consulting Project', program: 'MSc', termSeason: 'Winter', termYear: now.getFullYear() + 1,
+      scope: '',
+      notes: 'Needs sign-off from their VP before we can share a scope.',
+      stages: [['Identifying', -16]],
+      deadline: 12,
+    }),
+    application({
+      id: 'ap-granite-sprint', title: 'Strategy sprint with mentor matching', companyId: 'co-granite', primaryContactId: 'ct-ben',
+      projectType: 'IDIS Sprint', program: 'MBA', termSeason: 'Winter', termYear: now.getFullYear() + 1,
+      scope: 'Two-week strategy sprint for an incoming cohort, with Granite Peak consultants as mentors.',
+      notes: '',
+      stages: [['Identifying', -25], ['Outreach Sent', -22], ['Application submitted', -14], ['Meeting completed', -3]],
+      deadline: 6,
+    }),
+    application({
+      id: 'ap-fernhill-member', title: 'Member experience study', companyId: 'co-fernhill', primaryContactId: 'ct-omar',
+      projectType: 'New Venture Project', program: 'HBA', termSeason: 'Fall', termYear: now.getFullYear() + 1,
+      scope: 'Interview members about digital banking needs.',
+      notes: 'Interested, but waiting for the new CEO to start.',
+      stages: [['Identifying', -60], ['Outreach Sent', -50], ['Deferred', -6]],
+      deadline: null,
+    }),
+    application({
+      id: 'ap-lanternworks-brand', title: 'Brand storytelling venture', companyId: 'co-lanternworks', primaryContactId: 'ct-jonah',
+      projectType: 'New Venture Project', program: 'HBA', termSeason: 'Winter', termYear: now.getFullYear() - 1,
+      scope: 'Develop a launch story for a new studio service line.',
+      notes: '',
+      stages: [['Identifying', -720], ['Outreach Sent', -710], ['Application submitted', -690], ['Project Approved', -670], ['Team Confirmed', -650], ['Active', -620], ['Completed', -560]],
+      deadline: -660,
+    }),
+  ];
+
+  // Fictional campaigns. Participant statuses use the Opportunity stages, as Lauren asked.
+  // Do Not Contact people (Jonah Fields) are never added.
+  const participant = (id: string, contactId: string, companyId: string, history: [string, number][], notes = '') => ({
+    id,
+    contactId,
+    companyId,
+    status: history[history.length - 1][0],
+    statusHistory: history.map(([status, d]) => ({ status, changedAt: at(d, 10) })),
+    notes,
+    addedAt: at(history[0][1], 10),
+  });
+  const term = now.getFullYear() + 1;
+  const campaigns: Campaign[] = [
+    {
+      id: 'cp-winter-invite', name: `Winter ${term} field project invitations`, purpose: 'Project invitation',
+      projectTypes: ['MBA Ivey Field Project', 'HBA Ivey Field Project'], termSeason: 'Winter', termYear: term,
+      description: 'Invite prospective and active partners to host a winter field project team.', state: 'Active',
+      templateSubject: 'Host a student team this {{term}}?',
+      templateBody: 'Hi {{firstName}},\n\nWe are looking for partners to host {{projectTypes}} teams in {{term}}. Would {{companyName}} be interested in a short call to explore a project?\n\nBest regards,\nLauren\nExperiential Learning office',
+      participants: [
+        participant('pa-01', 'ct-hana', 'co-juniper', [['Identifying', -14], ['Outreach Sent', -8]]),
+        participant('pa-02', 'ct-claire', 'co-bluewater', [['Identifying', -14]]),
+        participant('pa-03', 'ct-ines', 'co-harbourlight', [['Identifying', -14], ['Outreach Sent', -10], ['Meeting completed', -3]], 'Interested; waiting on Q1 budget.'),
+      ],
+      createdAt: at(-15, 9), updatedAt: at(-3, 10),
+    },
+    {
+      id: 'cp-renewal', name: 'Past partner renewal outreach', purpose: 'Partner renewal',
+      projectTypes: [], termSeason: 'Fall', termYear: term, description: 'Reconnect with partners who have hosted projects before.', state: 'Planning',
+      templateSubject: 'Working together again in {{term}}',
+      templateBody: 'Hi {{firstName}},\n\nThank you again for partnering with us in the past. We would love to explore another project with {{companyName}} in {{term}}. Is there a good time to talk?\n\nBest regards,\nLauren',
+      participants: [participant('pa-04', 'ct-omar', 'co-fernhill', [['Identifying', -6], ['Deferred', -6]], 'Waiting for their new CEO.')],
+      createdAt: at(-6, 9), updatedAt: at(-6, 10),
+    },
+    {
+      id: 'cp-survey', name: `Fall ${now.getFullYear()} project feedback survey`, purpose: 'Survey',
+      projectTypes: ['Research Project', 'Action Learning Project'], termSeason: 'Fall', termYear: now.getFullYear(),
+      description: 'Ask partners and EIRs for feedback after their projects.', state: 'Active',
+      templateSubject: 'Two minutes of feedback on your {{term}} project?',
+      templateBody: 'Hi {{firstName}},\n\nThank you for working with our students. Could you share a few thoughts on how the project went for {{companyName}}? Your feedback helps us improve future projects.\n\nThanks,\nLauren',
+      participants: [
+        participant('pa-05', 'ct-diego', 'co-copperfield', [['Identifying', -5], ['Outreach Sent', -4]]),
+        participant('pa-06', 'ct-amira', 'co-granite', [['Identifying', -5], ['Outreach Sent', -4], ['Completed', -1]], 'EIR. Survey returned.'),
+      ],
+      createdAt: at(-5, 9), updatedAt: at(-1, 10),
+    },
+  ];
+
+  // Fictional project feedback. Flags are set by hand and never decide eligibility on their own.
+  const feedback: Feedback[] = [
+    {
+      id: 'fb-01', applicationId: 'ap-copperfield-market', applicationLabel: `Ontario market-entry research (Fall ${now.getFullYear()})`, companyId: 'co-copperfield',
+      source: 'Corporate partner', givenBy: 'Diego Alvarez', receivedOn: day(-4),
+      originalText: 'The student team’s mid-term presentation was clear and well researched. We would happily host another team next year.',
+      outcome: 'In progress. Mid-term milestone met.', notes: '',
+      flags: [{ flag: 'Positive feedback', flaggedAt: at(-4, 15), note: 'Mid-term presentation praised.' }],
+      editHistory: [], createdAt: at(-4, 15), updatedAt: at(-4, 15),
+    },
+    {
+      id: 'fb-02', applicationId: 'ap-lanternworks-brand', applicationLabel: `Brand storytelling venture (Winter ${now.getFullYear() - 1})`, companyId: 'co-lanternworks',
+      source: 'Student team', givenBy: '', receivedOn: day(-555),
+      originalText: 'The partner changed the brief twice and was hard to reach for several weeks. The final presentation went ahead but felt rushed.',
+      outcome: 'Delivered, with scope changes mid-project.', notes: 'Discuss expectations up front if they apply again.',
+      flags: [{ flag: 'Needs review before future collaboration', flaggedAt: at(-550, 11), note: 'Scope changed twice; slow responses.' }],
+      editHistory: [], createdAt: at(-555, 11), updatedAt: at(-550, 11),
+    },
+  ];
+
+  return { schemaVersion: SCHEMA_VERSION, companies, contacts, activities, tasks, applications, briefs: [], campaigns, feedback };
 }

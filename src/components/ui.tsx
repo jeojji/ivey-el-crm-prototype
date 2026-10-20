@@ -187,6 +187,9 @@ export function Badge({ children, className = 'bg-neutral-100 text-neutral-700 r
 export const inputClass =
   'block w-full rounded-md border border-neutral-300 bg-white px-3 py-2 text-sm text-neutral-900 shadow-xs placeholder:text-neutral-400 focus:border-ivey-600 focus:ring-2 focus:ring-ivey-600/20 focus:outline-none aria-[invalid=true]:border-red-600 aria-[invalid=true]:focus:ring-red-600/20';
 
+/** Inline filter dropdowns: same look as inputs, but sized to their content so they sit in a row. */
+export const filterSelectClass = inputClass.replace('block w-full ', 'block w-auto ');
+
 interface FieldShellProps {
   id: string;
   label: string;

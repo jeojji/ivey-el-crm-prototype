@@ -2,10 +2,10 @@ import { useMemo, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useData } from '../state/DataContext';
 import { relativeFromIso } from '../lib/dates';
-import { fullName, lastActivityAt, matchesQuery } from '../lib/selectors';
+import { fullName, lastCommunicationAt, matchesQuery } from '../lib/selectors';
 import { CONTACT_PRIORITIES, CONTACT_ROLES, PARTNER_STATUSES } from '../lib/options';
 import { contactReviewIssues } from '../lib/review';
-import { Avatar, Badge, Button, Card, EmptyState, PageHeader, PriorityBadge, SearchInput, inputClass } from '../components/ui';
+import { Avatar, Badge, Button, Card, EmptyState, PageHeader, PriorityBadge, SearchInput, filterSelectClass } from '../components/ui';
 import { Icon } from '../components/Icon';
 import { Modal } from '../components/Modal';
 import { ContactForm } from '../components/ContactForm';
@@ -36,7 +36,7 @@ export function ContactsPage() {
       .map((r) => ({
         ...r,
         company: r.contact.companyId ? companyById.get(r.contact.companyId) : undefined,
-        lastActivity: lastActivityAt(activities.filter((a) => a.contactId === r.contact.id)),
+        lastActivity: lastCommunicationAt(activities.filter((a) => a.contactId === r.contact.id)),
       }))
       .sort((a, b) => a.contact.lastName.localeCompare(b.contact.lastName) || a.contact.firstName.localeCompare(b.contact.firstName));
   }, [contacts, companyById, activities, query, companyFilter, priority, role, status]);
@@ -61,26 +61,26 @@ export function ContactsPage() {
 
       <div className="mb-4 flex flex-wrap items-center gap-3">
         <SearchInput value={query} onChange={setQuery} placeholder="Search name, email, title, company or notes" label="Search contacts" />
-        <select value={companyFilter} onChange={(e) => setCompanyFilter(e.target.value)} aria-label="Filter by company" className={`${inputClass} w-auto max-w-[14rem]`}>
+        <select value={companyFilter} onChange={(e) => setCompanyFilter(e.target.value)} aria-label="Filter by company" className={`${filterSelectClass} max-w-[14rem]`}>
           <option value="">All companies</option>
           <option value="none">No company</option>
           {[...companies].sort((a, b) => a.name.localeCompare(b.name)).map((c) => (
             <option key={c.id} value={c.id}>{c.name}</option>
           ))}
         </select>
-        <select value={priority} onChange={(e) => setPriority(e.target.value)} aria-label="Filter by contact priority" className={`${inputClass} w-auto`}>
+        <select value={priority} onChange={(e) => setPriority(e.target.value)} aria-label="Filter by contact priority" className={`${filterSelectClass}`}>
           <option value="">Any priority</option>
           {CONTACT_PRIORITIES.map((p) => (
             <option key={p} value={p}>{p}</option>
           ))}
         </select>
-        <select value={role} onChange={(e) => setRole(e.target.value)} aria-label="Filter by contact role" className={`${inputClass} w-auto`}>
+        <select value={role} onChange={(e) => setRole(e.target.value)} aria-label="Filter by contact role" className={`${filterSelectClass}`}>
           <option value="">Any role</option>
           {CONTACT_ROLES.map((r) => (
             <option key={r} value={r}>{r}</option>
           ))}
         </select>
-        <select value={status} onChange={(e) => setStatus(e.target.value)} aria-label="Filter by contact status" className={`${inputClass} w-auto`}>
+        <select value={status} onChange={(e) => setStatus(e.target.value)} aria-label="Filter by contact status" className={`${filterSelectClass}`}>
           <option value="">All statuses</option>
           {PARTNER_STATUSES.map((s) => (
             <option key={s} value={s}>{s}</option>
@@ -100,7 +100,8 @@ export function ContactsPage() {
           <EmptyState icon="search" title="No contacts match your search" message="Try a different search or clear the filters."
             action={<Button variant="secondary" onClick={clear}>Clear filters</Button>} />
         ) : (
-          <table className="w-full text-left text-sm">
+          <div className="overflow-x-auto">
+          <table className="w-full min-w-[760px] text-left text-sm">
             <thead className="border-b border-neutral-200 bg-neutral-50 text-xs font-semibold tracking-wide text-neutral-600 uppercase">
               <tr>
                 <th scope="col" className="px-5 py-3">Name</th>
@@ -108,7 +109,7 @@ export function ContactsPage() {
                 <th scope="col" className="px-5 py-3">Priority</th>
                 <th scope="col" className="px-5 py-3">Role</th>
                 <th scope="col" className="px-5 py-3">Email</th>
-                <th scope="col" className="px-5 py-3">Last activity</th>
+                <th scope="col" className="px-5 py-3" title="Most recent logged email, call or meeting">Last communication</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-neutral-100">
@@ -151,6 +152,7 @@ export function ContactsPage() {
               ))}
             </tbody>
           </table>
+          </div>
         )}
       </Card>
 

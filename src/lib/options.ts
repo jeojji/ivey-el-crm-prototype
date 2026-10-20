@@ -153,3 +153,68 @@ export function isKnown(options: readonly string[], value: string): boolean {
 export function shortLabel(value: string): string {
   return value.replace(/\s*\(.*\)$/, '');
 }
+
+// ---------------------------------------------------------------------------
+// Applications (Lauren's "Opportunities"): engagement opportunities with a partner, not job applications.
+
+/** Exact stage names and meanings from Lauren's request, in pipeline order. */
+export const APPLICATION_STAGES = [
+  'Identifying',
+  'Outreach Sent',
+  'Application submitted',
+  'Meeting completed',
+  'Project Approved',
+  'Team Confirmed',
+  'Active',
+  'Completed',
+  'Declined',
+  'Deferred',
+] as const;
+export type ApplicationStage = (typeof APPLICATION_STAGES)[number];
+
+export const STAGE_MEANINGS: Record<ApplicationStage, string> = {
+  Identifying: 'Corporate partner identified as a candidate',
+  'Outreach Sent': 'Initial contact made',
+  'Application submitted': 'Project scope/details shared',
+  'Meeting completed': 'Meeting between EL office and corporate partner',
+  'Project Approved': 'Project is approved by EL office',
+  'Team Confirmed': 'Team assigned, corporate partner fully committed',
+  Active: 'Project underway',
+  Completed: 'Project delivered',
+  Declined: 'Corporate partner no longer interested',
+  Deferred: 'Corporate partner interested for future',
+};
+
+/** Shared with the partner but not yet approved by the EL office: shown as "awaiting review". */
+export const AWAITING_REVIEW_STAGES: readonly ApplicationStage[] = ['Application submitted', 'Meeting completed'];
+/** Participation isn't confirmed yet, so the confirmation deadline still matters. */
+export const UNCONFIRMED_STAGES: readonly ApplicationStage[] = ['Identifying', 'Outreach Sent', 'Application submitted', 'Meeting completed', 'Project Approved'];
+/** No further pipeline movement expected. */
+export const CLOSED_STAGES: readonly ApplicationStage[] = ['Completed', 'Declined', 'Deferred'];
+
+/**
+ * Lauren's Opportunity "Project Type" list (15 values). Her document spells two of them
+ * "MBA Field Project" / "HBA Field Project"; the app's shared spelling is used here so
+ * applications, companies and contacts can be filtered together (see REQUIREMENTS.md).
+ */
+export const APPLICATION_PROJECT_TYPES = PROJECT_TYPES.filter((t) => t !== 'Guest Speaker' && t !== 'Other');
+
+export const PROGRAMS = ['HBA', 'MBA', 'MSc', 'CEMS'] as const;
+
+// ---------------------------------------------------------------------------
+// Campaigns: Lauren's three purposes. Participant statuses reuse the Opportunity stages, as her
+// request says ("The statuses above in Opportunities would be used for campaigns as well").
+export const CAMPAIGN_PURPOSES = ['Project invitation', 'Partner renewal', 'Survey'] as const;
+export const CAMPAIGN_PURPOSE_HINTS: Record<(typeof CAMPAIGN_PURPOSES)[number], string> = {
+  'Project invitation': 'Inviting new corporate partners to participate in a project, event etc.',
+  'Partner renewal': 'Renewing past corporate partners',
+  Survey: 'Surveying after projects (both corporate partners and EIRs get surveys)',
+};
+/** Prototype field (not in Lauren's list): whether the campaign is still being worked. */
+export const CAMPAIGN_STATES = ['Planning', 'Active', 'Closed'] as const;
+
+// Project feedback
+export const FEEDBACK_SOURCES = ['Corporate partner', 'Student team', 'EIR', 'EL office', 'Other'] as const;
+export const FEEDBACK_FLAGS = ['Positive feedback', 'Needs review before future collaboration', 'Do not reuse'] as const;
+export type FeedbackFlag = (typeof FEEDBACK_FLAGS)[number];
+export const TERM_SEASONS = ['Fall', 'Winter', 'Summer'] as const;

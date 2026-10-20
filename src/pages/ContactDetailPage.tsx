@@ -2,18 +2,21 @@ import { useState, type ReactNode } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { useData } from '../state/DataContext';
 import { useToast } from '../state/ToastContext';
-import { formatDate } from '../lib/dates';
-import { byDueAsc, fullName } from '../lib/selectors';
+import { formatDate, relativeFromIso } from '../lib/dates';
+import { byDueAsc, fullName, lastCommunicationAt } from '../lib/selectors';
 import { Avatar, Button, Card, Chips, EmptyState, PageHeader, PriorityBadge, ReviewNotice, StatusBadges } from '../components/ui';
 import { CONTACT_ROLES, DO_NOT_CONTACT, PROJECT_TYPES, ALUMNI_OPTIONS, SOURCES, isKnown } from '../lib/options';
 import { contactReviewIssues } from '../lib/review';
 import { Icon, type IconName } from '../components/Icon';
+import { LinkedImpact, plural } from '../components/LinkedImpact';
 import { ConfirmDialog, Modal } from '../components/Modal';
 import { ContactForm } from '../components/ContactForm';
 import { ActivityForm } from '../components/ActivityForm';
 import { ActivityTimeline } from '../components/ActivityTimeline';
 import { FollowUpList } from '../components/FollowUpList';
 import { TaskForm } from '../components/TaskForm';
+import { ApplicationForm, ApplicationMiniList } from '../components/applications';
+import { termSortKey } from '../lib/applications';
 
 function DetailRow({ icon, label, children }: { icon: IconName; label: string; children: ReactNode }) {
   return (
@@ -30,9 +33,10 @@ function DetailRow({ icon, label, children }: { icon: IconName; label: string; c
 export function ContactDetailPage() {
   const { id = '' } = useParams();
   const navigate = useNavigate();
-  const { contactById, companyById, activities, tasks, deleteContact } = useData();
+  const data = useData();
+  const { contactById, companyById, activities, tasks, applications, deleteContact } = data;
   const { notify } = useToast();
-  const [modal, setModal] = useState<'edit' | 'activity' | 'task' | 'delete' | null>(null);
+  const [modal, setModal] = useState<'edit' | 'activity' | 'task' | 'application' | 'delete' | null>(null);
   const close = () => setModal(null);
 
   const contact = contactById.get(id);
@@ -48,6 +52,8 @@ export function ContactDetailPage() {
   const company = contact.companyId ? companyById.get(contact.companyId) : undefined;
   const history = activities.filter((a) => a.contactId === id);
   const openTasks = tasks.filter((t) => t.contactId === id && t.status === 'open').sort(byDueAsc);
+  const contactApps = applications.filter((a) => a.primaryContactId === id).sort((a, b) => termSortKey(b) - termSortKey(a) || a.title.localeCompare(b.title));
+  const lastComm = lastCommunicationAt(history);
   const elsewhere = history.filter((a) => a.companyId !== contact.companyId).length;
   const notRecorded = <span className="text-neutral-500">Not recorded</span>;
 
@@ -90,6 +96,7 @@ export function ContactDetailPage() {
           <>
             <Button variant="secondary" icon="pencil" onClick={() => setModal('edit')}>Edit</Button>
             <Button variant="secondary" icon="trash" onClick={() => setModal('delete')}>Delete</Button>
+            <Link to={`/prep?contact=${id}${contact.companyId ? `&company=${contact.companyId}` : ''}`} className="inline-flex items-center gap-2 rounded-md border border-neutral-300 bg-white px-3.5 py-2 text-sm font-medium text-neutral-800 shadow-xs hover:bg-neutral-50">Prepare for conversation</Link>
             <Button icon="plus" onClick={() => setModal('activity')}>Log activity</Button>
           </>
         }
@@ -123,6 +130,10 @@ export function ContactDetailPage() {
         </div>
 
         <div className="space-y-6">
+          <Card title={`Applications as primary contact (${contactApps.length})`} action={<Button size="sm" variant="secondary" icon="plus" onClick={() => setModal('application')}>Add application</Button>}>
+            {contactApps.length ? <ApplicationMiniList applications={contactApps} showCompany /> : <p className="text-sm text-neutral-600">{contact.firstName} isn't the primary contact on any application.</p>}
+          </Card>
+
           <Card title="Contact details">
             <dl className="-my-2.5 divide-y divide-neutral-100">
               <DetailRow icon="mail" label="Email">{contact.email || notRecorded}</DetailRow>
@@ -157,6 +168,9 @@ export function ContactDetailPage() {
             <dl className="-my-2.5 divide-y divide-neutral-100">
               <DetailRow icon="task" label="EL project participation"><Chips values={contact.projectParticipation} known={PROJECT_TYPES} /></DetailRow>
               <DetailRow icon="calendar" label="Last project participated">{contact.lastProjectDate ? formatDate(contact.lastProjectDate) : notRecorded}</DetailRow>
+              <DetailRow icon="mail" label="Last communication (from activity history)">
+                {lastComm ? `${formatDate(lastComm)} (${relativeFromIso(lastComm).toLowerCase()})` : <span className="text-neutral-500">No emails, calls or meetings logged</span>}
+              </DetailRow>
               <DetailRow icon="note" label="Alumni"><Chips values={contact.alumniPrograms} known={ALUMNI_OPTIONS} /></DetailRow>
               <DetailRow icon="calendar" label="Graduation year">{contact.graduationYear ?? notRecorded}</DetailRow>
             </dl>
@@ -184,6 +198,9 @@ export function ContactDetailPage() {
       <Modal open={modal === 'activity'} onClose={close} title="Log activity" description={company ? `${name} · ${company.name}` : name} size="lg">
         <ActivityForm defaultContactId={id} onSaved={close} onCancel={close} />
       </Modal>
+      <Modal open={modal === 'application'} onClose={close} title="Add application" description={company ? `${name} · ${company.name}` : name} size="xl">
+        <ApplicationForm defaultContactId={id} onSaved={close} onCancel={close} />
+      </Modal>
       <Modal open={modal === 'task'} onClose={close} title="Add follow-up" description={company ? `${name} · ${company.name}` : name} size="lg">
         <TaskForm defaultContactId={id} onSaved={close} onCancel={close} />
       </Modal>
@@ -191,9 +208,16 @@ export function ContactDetailPage() {
         open={modal === 'delete'}
         title={`Delete ${name}?`}
         message={
-          history.length > 0
-            ? `Their ${history.length} logged activit${history.length === 1 ? 'y stays' : 'ies stay'} on the company record, without a person attached.`
-            : 'This permanently removes the contact.'
+          <LinkedImpact
+            intro={`${name} will be deleted.`}
+            items={[
+              [history.length, `${plural(history.length, 'logged activity stays', 'logged activities stay')} in the history (on the company), without a person attached.`],
+              [tasks.filter((t) => t.contactId === id).length, `${plural(tasks.filter((t) => t.contactId === id).length, 'follow-up stays', 'follow-ups stay')}, no longer linked to this person.`],
+              [contactApps.length, `${plural(contactApps.length, 'application loses', 'applications lose')} their primary contact (the applications stay).`],
+              [data.campaigns.filter((c) => c.participants.some((p) => p.contactId === id)).length, `They're removed from ${plural(data.campaigns.filter((c) => c.participants.some((p) => p.contactId === id)).length, 'campaign', 'campaigns')}, including their campaign status. Recorded outreach stays in the history.`],
+              [data.briefs.filter((b) => b.contactId === id).length, `${plural(data.briefs.filter((b) => b.contactId === id).length, 'relationship brief', 'relationship briefs')} about them will show as possibly outdated.`],
+            ]}
+          />
         }
         confirmLabel="Delete contact"
         onConfirm={handleDelete}

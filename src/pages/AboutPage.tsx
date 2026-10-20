@@ -1,13 +1,16 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
+import { Link, useLocation } from 'react-router-dom';
 import { useData } from '../state/DataContext';
 import { useToast } from '../state/ToastContext';
 import { STORAGE_KEY } from '../data/localStorageRepository';
-import { Button, Card, PageHeader } from '../components/ui';
+import { Badge, Button, Card, PageHeader } from '../components/ui';
 import { ConfirmDialog } from '../components/Modal';
 import { Icon } from '../components/Icon';
+import { DEMO_MODE } from '../ai/client';
 
 export function AboutPage() {
-  const { companies, contacts, activities, tasks, resetToSampleData, clearAllData, downloadBackup } = useData();
+  const data = useData();
+  const { companies, contacts, activities, tasks, applications, resetToSampleData, clearAllData, downloadBackup } = data;
   const { notify } = useToast();
   const [confirm, setConfirm] = useState<'reset' | 'clear' | null>(null);
 
@@ -25,6 +28,22 @@ export function AboutPage() {
       notify(err instanceof Error ? err.message : 'Something went wrong.', 'error');
     }
   }
+
+  const location = useLocation();
+  useEffect(() => {
+    if (location.hash === '#demo-data') document.getElementById('demo-data')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }, [location.hash]);
+
+  const counts: [string, number][] = [
+    ['Companies', companies.length],
+    ['Contacts', contacts.length],
+    ['Applications', applications.length],
+    ['Activities', activities.length],
+    ['Follow-ups', tasks.length],
+    ['Campaigns', data.campaigns.length],
+    ['Feedback', data.feedback.length],
+    ['Briefs', data.briefs.length],
+  ];
 
   async function backup(kind: 'current' | 'pre-upgrade') {
     try {
@@ -54,9 +73,36 @@ export function AboutPage() {
           </div>
         </Card>
 
+        <Card title="What works where" className="lg:col-span-2">
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[640px] text-left text-sm">
+              <thead className="text-xs font-semibold tracking-wide text-neutral-600 uppercase">
+                <tr><th scope="col" className="py-2 pr-4">Status</th><th scope="col" className="py-2">Features</th></tr>
+              </thead>
+              <tbody className="divide-y divide-neutral-100 align-top">
+                <tr>
+                  <td className="py-3 pr-4"><Badge className="bg-ivey-50 text-ivey-800 ring-ivey-200">Working</Badge><p className="mt-1 text-xs text-neutral-500">Saved in this browser</p></td>
+                  <td className="py-3 text-neutral-800">Companies, contacts, applications and pipeline, campaigns (tracking only), follow-ups, activity history, “Add email” with manual review, project feedback and flags, CSV import/export, JSON backup and restore.</td>
+                </tr>
+                <tr>
+                  <td className="py-3 pr-4"><Badge className="bg-violet-50 text-violet-800 ring-violet-200">AI suggestions</Badge><p className="mt-1 text-xs text-neutral-500">{DEMO_MODE ? 'Not in this online demo' : 'Local computer only'}</p></td>
+                  <td className="py-3 text-neutral-800">
+                    Suggested details from a pasted email, and relationship briefs with conversation prep. They run on a model on your own computer (Ollama), are always shown as suggestions with sources, and are never saved without your confirmation.
+                    {DEMO_MODE && <span className="mt-1 block text-neutral-600">This online demo can't run them: they need the local installation (see SETUP-LOCAL-AI.md in the project).</span>}
+                  </td>
+                </tr>
+                <tr>
+                  <td className="py-3 pr-4"><Badge className="bg-neutral-100 text-neutral-700 ring-neutral-200">Not connected</Badge><p className="mt-1 text-xs text-neutral-500">Not built in the prototype</p></td>
+                  <td className="py-3 text-neutral-800">Outlook or any inbox, Salesforce, Calendly or calendars, meeting note-taking tools, cloud AI services, sending email or running sequences, sign-in and shared access for colleagues.</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </Card>
+
         <Card title="Not connected">
           <ul className="space-y-2.5 text-sm text-neutral-700">
-            {['Email (Outlook / Gmail)', 'Salesforce', 'Calendly or calendars', 'AI services'].map((s) => (
+            {['Email (Outlook / Gmail)', 'Salesforce', 'Calendly or calendars', 'Cloud AI services'].map((s) => (
               <li key={s} className="flex items-center gap-2">
                 <Icon name="x" className="h-4 w-4 text-neutral-400" />
                 {s}: <span className="text-neutral-500">not connected</span>
@@ -64,6 +110,12 @@ export function AboutPage() {
             ))}
           </ul>
           <p className="mt-4 text-sm text-neutral-600">Every activity is logged by hand. Nothing is sent, synced or read from other systems.</p>
+          <p className="mt-3 text-sm text-neutral-600">
+            <strong className="font-semibold text-neutral-800">Local AI (optional):</strong>{' '}
+            {DEMO_MODE
+              ? 'not available in this online demo. On a computer set up with Ollama, “Add email” can suggest details using a model that runs entirely on that computer.'
+              : '“Add email” can suggest details using a model running on this computer through Ollama. Emails are never sent to a cloud AI, and there is no cloud fallback. Suggestions are only proposals that you review.'}
+          </p>
         </Card>
 
         <Card title="Where data is stored">
@@ -77,52 +129,78 @@ export function AboutPage() {
           </div>
         </Card>
 
-        <Card title="Workspace data" className="lg:col-span-2">
-          <dl className="mb-5 grid grid-cols-2 gap-4 sm:grid-cols-4">
-            {[
-              ['Companies', companies.length],
-              ['Contacts', contacts.length],
-              ['Activities', activities.length],
-              ['Follow-ups', tasks.length],
-            ].map(([label, n]) => (
+        <Card title="Demo data and backups" className="lg:col-span-2">
+          <div id="demo-data" className="scroll-mt-6" />
+          <p className="mb-4 text-sm text-neutral-700">What's saved in this browser right now:</p>
+          <dl className="mb-5 grid grid-cols-2 gap-4 sm:grid-cols-4 xl:grid-cols-8">
+            {counts.map(([label, n]) => (
               <div key={label} className="rounded-lg bg-neutral-50 px-4 py-3">
                 <dt className="text-xs text-neutral-600">{label}</dt>
                 <dd className="text-xl font-semibold text-neutral-950 tabular-nums">{n}</dd>
               </div>
             ))}
           </dl>
-          <div className="flex flex-wrap gap-3">
-            <Button variant="secondary" icon="database" onClick={() => backup('current')}>Download backup (.json)</Button>
-            <Button variant="secondary" onClick={() => backup('pre-upgrade')}>Download pre-upgrade original</Button>
-            <Button variant="secondary" onClick={() => setConfirm('reset')}>Reset to sample data</Button>
-            <Button variant="secondary" onClick={() => setConfirm('clear')}>Start with an empty workspace</Button>
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+            <div className="rounded-lg border border-neutral-200 p-4">
+              <h3 className="text-sm font-semibold text-neutral-950">Backups</h3>
+              <p className="mt-1 text-xs text-neutral-600">A .json file with everything in this browser, saved to your Downloads folder. Restore it from Import &amp; export.</p>
+              <div className="mt-3 flex flex-wrap gap-2">
+                <Button size="sm" variant="secondary" icon="download" onClick={() => backup('current')}>Download backup</Button>
+                <Button size="sm" variant="ghost" onClick={() => backup('pre-upgrade')}>Download pre-upgrade original</Button>
+              </div>
+            </div>
+            <div className="rounded-lg border border-amber-300 bg-amber-50/50 p-4">
+              <h3 className="text-sm font-semibold text-neutral-950">Reset demo data</h3>
+              <p className="mt-1 text-xs text-neutral-700">For demos and testing. Both options <strong>replace everything</strong> saved in this browser. You'll be asked to confirm, with a chance to download a backup first.</p>
+              <div className="mt-3 flex flex-wrap gap-2">
+                <Button size="sm" variant="secondary" onClick={() => setConfirm('reset')}>Reset to fictional demo data</Button>
+                <Button size="sm" variant="secondary" onClick={() => setConfirm('clear')}>Start with an empty workspace</Button>
+              </div>
+            </div>
           </div>
-          <p className="mt-3 text-xs text-neutral-500">Backups are saved to your Downloads folder. The pre-upgrade original only exists if this browser used the previous version. Reset and empty-workspace both replace everything currently saved in this browser, so download a backup first.</p>
         </Card>
 
-        <Card title="Coming in the next builds" className="lg:col-span-2">
+        <Card title="Not in this prototype" className="lg:col-span-2">
+          <p className="mb-2 text-sm text-neutral-700">From Lauren's request, these are out of scope for now:</p>
           <ul className="list-disc space-y-1.5 pl-5 text-sm text-neutral-700">
-            <li>CSV import (with preview and validation, accepting Lauren's template column names) and CSV export</li>
+            <li>Sending emails or running email sequences (campaigns are tracked by hand, and nothing is sent)</li>
+            <li>Sign-in, shared access and record sharing</li>
+            <li>Connecting partners to courses and student teams (Lauren's Phase 2)</li>
           </ul>
+          <p className="mt-3 text-sm text-neutral-700">
+            CSV import/export and full backups are on the <Link to="/import-export" className="font-medium text-ivey-700 hover:underline">Import &amp; export</Link> page.
+          </p>
         </Card>
       </div>
 
       <ConfirmDialog
         open={confirm === 'reset'}
-        title="Reset to sample data?"
-        message="Everything you've added or changed in this browser will be replaced with the original fictional sample data."
-        confirmLabel="Reset data"
+        title="Reset to fictional demo data?"
+        message={<ReplaceWarning action="replaced with the original fictional demo data" counts={counts} onBackup={() => backup('current')} />}
+        confirmLabel="Replace with demo data"
         onConfirm={() => run('reset')}
         onCancel={() => setConfirm(null)}
       />
       <ConfirmDialog
         open={confirm === 'clear'}
         title="Start with an empty workspace?"
-        message="All companies, contacts, activities and follow-ups in this browser will be deleted. You can restore the sample data later."
+        message={<ReplaceWarning action="deleted, leaving an empty workspace" counts={counts} onBackup={() => backup('current')} />}
         confirmLabel="Delete everything"
         onConfirm={() => run('clear')}
         onCancel={() => setConfirm(null)}
       />
     </>
+  );
+}
+
+function ReplaceWarning({ action, counts, onBackup }: { action: string; counts: [string, number][]; onBackup: () => void }) {
+  const nonEmpty = counts.filter(([, n]) => n > 0);
+  return (
+    <div className="space-y-3">
+      <p>Everything saved in this browser will be {action}:</p>
+      <p className="text-neutral-800">{nonEmpty.length ? nonEmpty.map(([l, n]) => `${n} ${l.toLowerCase()}`).join(' · ') : 'The workspace is already empty.'}</p>
+      <p className="text-neutral-600">This can't be undone without a backup.</p>
+      <Button size="sm" variant="secondary" icon="download" onClick={onBackup}>Download a backup first</Button>
+    </div>
   );
 }

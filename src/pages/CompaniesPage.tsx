@@ -2,10 +2,10 @@ import { useMemo, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useData } from '../state/DataContext';
 import { relativeFromIso } from '../lib/dates';
-import { lastActivityAt, matchesQuery } from '../lib/selectors';
+import { lastCommunicationAt, matchesQuery } from '../lib/selectors';
 import { PARTNER_STATUSES, PRIORITIES, PROJECT_TYPES, shortLabel } from '../lib/options';
 import { companyReviewIssues } from '../lib/review';
-import { Badge, Button, Card, EmptyState, PageHeader, PriorityBadge, SearchInput, StatusBadges, inputClass } from '../components/ui';
+import { Badge, Button, Card, EmptyState, PageHeader, PriorityBadge, SearchInput, StatusBadges, filterSelectClass } from '../components/ui';
 import { Icon } from '../components/Icon';
 import { Modal } from '../components/Modal';
 import { CompanyForm } from '../components/CompanyForm';
@@ -33,7 +33,7 @@ export function CompaniesPage() {
       .map((r) => ({
         ...r,
         contactCount: contacts.filter((p) => p.companyId === r.company.id).length,
-        lastActivity: lastActivityAt(activities.filter((a) => a.companyId === r.company.id)),
+        lastActivity: lastCommunicationAt(activities.filter((a) => a.companyId === r.company.id)),
       }))
       .sort((a, b) => a.company.name.localeCompare(b.company.name));
   }, [companies, contacts, activities, query, status, priority, project]);
@@ -57,20 +57,20 @@ export function CompaniesPage() {
 
       <div className="mb-4 flex flex-wrap items-center gap-3">
         <SearchInput value={query} onChange={setQuery} placeholder="Search name, industry, city or notes" label="Search companies" />
-        <select value={status} onChange={(e) => setStatus(e.target.value)} aria-label="Filter by partner status" className={`${inputClass} w-auto`}>
+        <select value={status} onChange={(e) => setStatus(e.target.value)} aria-label="Filter by partner status" className={`${filterSelectClass}`}>
           <option value="">All statuses</option>
           {PARTNER_STATUSES.map((s) => (
             <option key={s} value={s}>{s}</option>
           ))}
           {reviewCount > 0 && <option value={REVIEW}>Needs review ({reviewCount})</option>}
         </select>
-        <select value={priority} onChange={(e) => setPriority(e.target.value)} aria-label="Filter by partnership priority" className={`${inputClass} w-auto`}>
+        <select value={priority} onChange={(e) => setPriority(e.target.value)} aria-label="Filter by partnership priority" className={`${filterSelectClass}`}>
           <option value="">Any priority</option>
           {PRIORITIES.map((p) => (
             <option key={p} value={p}>{p} priority</option>
           ))}
         </select>
-        <select value={project} onChange={(e) => setProject(e.target.value)} aria-label="Filter by project participation" className={`${inputClass} w-auto max-w-[14rem]`}>
+        <select value={project} onChange={(e) => setProject(e.target.value)} aria-label="Filter by project participation" className={`${filterSelectClass} max-w-[14rem]`}>
           <option value="">Any project type</option>
           {PROJECT_TYPES.map((p) => (
             <option key={p} value={p}>{p}</option>
@@ -99,7 +99,8 @@ export function CompaniesPage() {
             action={<Button variant="secondary" onClick={clear}>Clear filters</Button>}
           />
         ) : (
-          <table className="w-full text-left text-sm">
+          <div className="overflow-x-auto">
+          <table className="w-full min-w-[760px] text-left text-sm">
             <thead className="border-b border-neutral-200 bg-neutral-50 text-xs font-semibold tracking-wide text-neutral-600 uppercase">
               <tr>
                 <th scope="col" className="px-5 py-3">Company</th>
@@ -107,7 +108,7 @@ export function CompaniesPage() {
                 <th scope="col" className="px-5 py-3">Priority</th>
                 <th scope="col" className="px-5 py-3">City</th>
                 <th scope="col" className="px-5 py-3 text-right">Contacts</th>
-                <th scope="col" className="px-5 py-3">Last activity</th>
+                <th scope="col" className="px-5 py-3" title="Most recent logged email, call or meeting">Last communication</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-neutral-100">
@@ -136,6 +137,7 @@ export function CompaniesPage() {
               ))}
             </tbody>
           </table>
+          </div>
         )}
       </Card>
 

@@ -47,16 +47,21 @@ export function DuePresets({ onPick }: { onPick: (date: string) => void }) {
   );
 }
 
-export function TaskForm({ task, defaultCompanyId, defaultContactId, onSaved, onCancel }: {
+export function TaskForm({ task, defaultCompanyId, defaultContactId, defaultApplicationId, onSaved, onCancel }: {
   task?: Task;
   defaultCompanyId?: string;
   defaultContactId?: string;
+  defaultApplicationId?: string;
   onSaved: (task: Task) => void;
   onCancel: () => void;
 }) {
   const { createTask, updateTask } = useData();
   const { notify } = useToast();
-  const initialLink = useInitialLink(task ? task.companyId : defaultCompanyId, task ? task.contactId : defaultContactId);
+  const initialLink = useInitialLink(
+    task ? task.companyId : defaultCompanyId,
+    task ? task.contactId : defaultContactId,
+    task ? task.applicationId : defaultApplicationId,
+  );
 
   const [title, setTitle] = useState(task?.title ?? '');
   const [dueDate, setDueDate] = useState(task?.dueDate ?? toDateString(addDays(new Date(), 7)));
@@ -86,6 +91,7 @@ export function TaskForm({ task, defaultCompanyId, defaultContactId, onSaved, on
       dueDate,
       companyId: link.companyId || null,
       contactId: link.contactId || null,
+      applicationId: link.applicationId || null,
       notes: notes.trim(),
     };
     try {
@@ -109,7 +115,7 @@ export function TaskForm({ task, defaultCompanyId, defaultContactId, onSaved, on
           <TextField label="Due date" type="date" value={dueDate} onChange={setDueDate} required error={errors.dueDate} hint={dueDateHint(dueDate)} />
           <DuePresets onPick={setDueDate} />
         </div>
-        <LinkFields value={link} onChange={setLink} />
+        <LinkFields value={link} onChange={setLink} withApplication />
         <TextAreaField className="col-span-2" label="Notes" value={notes} onChange={setNotes} rows={3} placeholder="Context or details to remember" />
       </div>
       <ModalFooter onCancel={onCancel} submitLabel={task ? 'Save changes' : 'Create follow-up'} saving={saving} />

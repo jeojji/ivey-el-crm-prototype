@@ -2,8 +2,8 @@ import { useState, type ReactNode } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { useData } from '../state/DataContext';
 import { useToast } from '../state/ToastContext';
-import { formatDate } from '../lib/dates';
-import { byDueAsc, fullName } from '../lib/selectors';
+import { formatDate, relativeFromIso } from '../lib/dates';
+import { byDueAsc, fullName, lastCommunicationAt } from '../lib/selectors';
 import { Avatar, Button, Card, Chips, EmptyState, PageHeader, PriorityBadge, ReviewNotice, StatusBadges, inputClass } from '../components/ui';
 import { PROJECT_TYPES, shortLabel } from '../lib/options';
 import { companyReviewIssues, formatAddress } from '../lib/review';
@@ -15,6 +15,11 @@ import { ActivityForm } from '../components/ActivityForm';
 import { ActivityTimeline } from '../components/ActivityTimeline';
 import { FollowUpList } from '../components/FollowUpList';
 import { TaskForm } from '../components/TaskForm';
+import { ApplicationForm, ApplicationMiniList } from '../components/applications';
+import { briefFreshness } from '../lib/briefSources';
+import { CompanyFlags } from '../components/feedback';
+import { Badge } from '../components/ui';
+import { termSortKey } from '../lib/applications';
 
 function Detail({ label, icon, children }: { label: string; icon?: IconName; children: ReactNode }) {
   return (
@@ -33,9 +38,9 @@ const notRecorded = <span className="text-neutral-500">Not recorded</span>;
 export function CompanyDetailPage() {
   const { id = '' } = useParams();
   const navigate = useNavigate();
-  const { companyById, contacts, activities, tasks, updateCompany, deleteCompany } = useData();
+  const { companyById, contacts, activities, tasks, applications, briefs, feedback, database, updateCompany, deleteCompany } = useData();
   const { notify } = useToast();
-  const [modal, setModal] = useState<'edit' | 'contact' | 'activity' | 'task' | 'delete' | null>(null);
+  const [modal, setModal] = useState<'edit' | 'contact' | 'activity' | 'task' | 'application' | 'delete' | null>(null);
   const [editingNotes, setEditingNotes] = useState(false);
   const [notesDraft, setNotesDraft] = useState('');
 
@@ -50,7 +55,12 @@ export function CompanyDetailPage() {
 
   const people = contacts.filter((c) => c.companyId === id).sort((a, b) => fullName(a).localeCompare(fullName(b)));
   const history = activities.filter((a) => a.companyId === id);
+  const lastComm = lastCommunicationAt(history);
+  const feedbackCount = feedback.filter((f) => f.companyId === id && f.flags.length > 0).length;
+  const latestBrief = briefs.filter((b) => b.companyId === id).sort((a, b) => b.generatedAt.localeCompare(a.generatedAt))[0];
+  const latestFresh = latestBrief ? briefFreshness(latestBrief, database) : null;
   const openTasks = tasks.filter((t) => t.companyId === id && t.status === 'open').sort(byDueAsc);
+  const companyApps = applications.filter((a) => a.companyId === id).sort((a, b) => termSortKey(b) - termSortKey(a) || a.title.localeCompare(b.title));
   const doneCount = tasks.filter((t) => t.companyId === id && t.status === 'done').length;
   const close = () => setModal(null);
 
@@ -75,7 +85,7 @@ export function CompanyDetailPage() {
     }
   }
 
-  const hasLinks = people.length > 0 || history.length > 0 || tasks.some((t) => t.companyId === id);
+  const hasLinks = people.length > 0 || history.length > 0 || tasks.some((t) => t.companyId === id) || companyApps.length > 0 || feedback.some((f) => f.companyId === id);
 
   return (
     <>
@@ -109,11 +119,41 @@ export function CompanyDetailPage() {
 
       <div className="grid grid-cols-1 gap-6 xl:grid-cols-3">
         <div className="space-y-6 xl:col-span-2">
+          <Card
+            title="Relationship brief"
+            action={<Link to={`/prep?company=${id}`} className="inline-flex items-center gap-1.5 rounded-md border border-neutral-300 bg-white px-2.5 py-1.5 text-xs font-medium text-neutral-800 shadow-xs hover:bg-neutral-50">Prepare for conversation</Link>}
+          >
+            {latestBrief ? (
+              <div className="text-sm">
+                <p className="flex flex-wrap items-center gap-2 text-xs text-neutral-600">
+                  Generated {formatDate(latestBrief.generatedAt)} with local AI
+                  {latestFresh?.outdated && <Badge className="bg-amber-50 text-amber-900 ring-amber-300">May be outdated</Badge>}
+                </p>
+                <ul className="mt-2 list-disc space-y-1 pl-5 text-neutral-800">
+                  {latestBrief.content.summary.slice(0, 3).map((f) => <li key={f.text}>{f.text}</li>)}
+                </ul>
+                {latestBrief.content.summary.length === 0 && <p className="mt-2 text-neutral-600">The latest brief found little to summarise.</p>}
+                <Link to={`/briefs/${latestBrief.id}`} className="mt-2 inline-block text-sm font-medium text-ivey-700 hover:underline">Open brief, sources and conversation prep</Link>
+              </div>
+            ) : (
+              <p className="text-sm text-neutral-600">No brief yet. “Prepare for conversation” uses the local AI to summarise the selected records, with every fact linked to its source.</p>
+            )}
+          </Card>
+
           {company.description && (
             <Card title="About">
               <p className="text-sm text-neutral-700">{company.description}</p>
             </Card>
           )}
+
+          <Card title={`Applications (${companyApps.length})`} action={<Button size="sm" variant="secondary" icon="plus" onClick={() => setModal('application')}>Add application</Button>}>
+            {companyApps.length ? (
+              <ApplicationMiniList applications={companyApps} />
+            ) : (
+              <p className="text-sm text-neutral-600">No applications yet. Add one to track an engagement opportunity through the pipeline.</p>
+            )}
+            <p className="mt-3 text-xs text-neutral-500">Each application has its own stage, separate from the partner status above.</p>
+          </Card>
 
           <Card title={`Activity history (${history.length})`} action={<Button size="sm" variant="secondary" icon="plus" onClick={() => setModal('activity')}>Log activity</Button>}>
             <ActivityTimeline
@@ -134,8 +174,17 @@ export function CompanyDetailPage() {
               <Detail label="Partner status">{company.statuses.length ? <StatusBadges statuses={company.statuses} /> : notRecorded}</Detail>
               <Detail label="Project participation"><Chips values={company.projectParticipation} known={PROJECT_TYPES} /></Detail>
               <Detail label="Last project participated">{company.lastProjectDate ? formatDate(company.lastProjectDate) : notRecorded}</Detail>
+              <Detail label="Last communication (from activity history)">
+                {lastComm ? `${formatDate(lastComm)} (${relativeFromIso(lastComm).toLowerCase()})` : <span className="text-neutral-500">No emails, calls or meetings logged</span>}
+              </Detail>
             </dl>
           </Card>
+
+          {feedbackCount > 0 && (
+            <Card title={`Feedback flags`}>
+              <CompanyFlags companyId={id} context="profile" />
+            </Card>
+          )}
 
           <Card title={`Contacts (${people.length})`} action={<Button size="sm" variant="secondary" icon="plus" onClick={() => setModal('contact')}>Add contact</Button>}>
             {people.length === 0 ? (
@@ -216,14 +265,27 @@ export function CompanyDetailPage() {
       <Modal open={modal === 'activity'} onClose={close} title="Log activity" description={company.name} size="lg">
         <ActivityForm defaultCompanyId={id} onSaved={close} onCancel={close} />
       </Modal>
+      <Modal open={modal === 'application'} onClose={close} title="Add application" description={company.name} size="xl">
+        <ApplicationForm defaultCompanyId={id} onSaved={close} onCancel={close} />
+      </Modal>
       <Modal open={modal === 'task'} onClose={close} title="Add follow-up" description={company.name} size="lg">
         <TaskForm defaultCompanyId={id} onSaved={close} onCancel={close} />
       </Modal>
       {hasLinks ? (
         <Modal open={modal === 'delete'} onClose={close} title="This company can't be deleted yet">
           <p className="text-sm text-neutral-700">
-            {company.name} still has linked contacts, activities or follow-ups. Delete or move those first, so no relationship history is lost by accident.
+            {company.name} still has linked records, so it can't be deleted without losing relationship history:
           </p>
+          <ul className="mt-2 list-disc space-y-0.5 pl-5 text-sm text-neutral-700">
+            {[
+              [people.length, 'contact', 'contacts'],
+              [history.length, 'activity', 'activities'],
+              [tasks.filter((t) => t.companyId === id).length, 'follow-up', 'follow-ups'],
+              [companyApps.length, 'application', 'applications'],
+              [feedback.filter((f) => f.companyId === id).length, 'feedback record', 'feedback records'],
+            ].filter(([n]) => (n as number) > 0).map(([n, one, many]) => <li key={one as string}>{n as number} {n === 1 ? one : many}</li>)}
+          </ul>
+          <p className="mt-2 text-sm text-neutral-600">Move or delete those first. If the company is simply no longer active, change its partner status instead.</p>
           <div className="-mx-6 mt-6 -mb-5 flex justify-end border-t border-neutral-100 bg-neutral-50 px-6 py-4">
             <Button variant="secondary" onClick={close}>OK</Button>
           </div>

@@ -11,7 +11,8 @@ export function UpgradeScreen() {
   const [downloaded, setDownloaded] = useState(false);
   const [working, setWorking] = useState(false);
   if (!pendingMigration) return null;
-  const { counts, unmatchedStatuses, unmatchedIndustries } = pendingMigration;
+  const { counts, unmatchedStatuses, unmatchedIndustries, fromVersion } = pendingMigration;
+  const fromV1 = fromVersion === 1;
 
   async function backup() {
     try {
@@ -39,8 +40,10 @@ export function UpgradeScreen() {
     <div className="mx-auto max-w-2xl">
       <h1 className="text-2xl font-semibold tracking-tight text-neutral-950">Update your saved data</h1>
       <p className="mt-2 text-sm text-neutral-600">
-        This version adds the fields from Lauren's requirements (priorities, multiple statuses, project participation,
-        contact roles, alumni details and more). The data saved in this browser needs a one-time upgrade first.
+        {fromV1
+          ? "This version adds the fields from Lauren's requirements (priorities, multiple statuses, project participation, contact roles, alumni details and more) and an Applications section."
+          : 'This version adds an Applications section for engagement opportunities, and lets activities and follow-ups link to an application.'}{' '}
+        The data saved in this browser needs a one-time upgrade first.
       </p>
 
       <Card className="mt-6">
@@ -51,9 +54,15 @@ export function UpgradeScreen() {
           <li className="flex gap-2"><Icon name="check" className="mt-0.5 h-4 w-4 shrink-0 text-ivey-700" />
             New fields start empty. Nothing is filled in automatically.</li>
           <li className="flex gap-2"><Icon name="check" className="mt-0.5 h-4 w-4 shrink-0 text-ivey-700" />
-            Old statuses that match Lauren's list (e.g. "Active partner") become the matching option. Each company also keeps its original value for reference.</li>
-          <li className="flex gap-2"><Icon name="check" className="mt-0.5 h-4 w-4 shrink-0 text-ivey-700" />
-            A contact's old "Phone" becomes their work phone. A company's old city text stays in City as it was.</li>
+            Applications start empty. None are created from existing project participation tags. Activities and follow-ups start with no application link.</li>
+          {fromV1 && (
+            <>
+              <li className="flex gap-2"><Icon name="check" className="mt-0.5 h-4 w-4 shrink-0 text-ivey-700" />
+                Old statuses that match Lauren's list (e.g. "Active partner") become the matching option. Each company also keeps its original value for reference.</li>
+              <li className="flex gap-2"><Icon name="check" className="mt-0.5 h-4 w-4 shrink-0 text-ivey-700" />
+                A contact's old "Phone" becomes their work phone. A company's old city text stays in City as it was.</li>
+            </>
+          )}
           <li className="flex gap-2"><Icon name="check" className="mt-0.5 h-4 w-4 shrink-0 text-ivey-700" />
             The original data stays in this browser untouched, as a second backup.</li>
         </ul>

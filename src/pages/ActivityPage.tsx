@@ -1,8 +1,10 @@
 import { useMemo, useState } from 'react';
+import { Link } from 'react-router-dom';
+import { Icon } from '../components/Icon';
 import { useData } from '../state/DataContext';
 import { ACTIVITY_LABELS, fullName, matchesQuery } from '../lib/selectors';
 import { ACTIVITY_TYPES, type ActivityType } from '../types';
-import { Button, Card, EmptyState, PageHeader, SearchInput, inputClass } from '../components/ui';
+import { Button, Card, EmptyState, PageHeader, SearchInput, filterSelectClass } from '../components/ui';
 import { Modal } from '../components/Modal';
 import { ActivityForm } from '../components/ActivityForm';
 import { ActivityTimeline, ActivityTypeIcon } from '../components/ActivityTimeline';
@@ -39,7 +41,15 @@ export function ActivityPage() {
       <PageHeader
         title="Activity history"
         description="Every email, call, meeting and note logged in the workspace, newest first."
-        actions={<Button icon="plus" onClick={() => setAdding(true)}>Log activity</Button>}
+        actions={
+          <>
+            <Link to="/emails/new" className="inline-flex items-center gap-2 rounded-md border border-neutral-300 bg-white px-3.5 py-2 text-sm font-medium text-neutral-800 shadow-xs hover:bg-neutral-50">
+              <Icon name="mail" className="h-4 w-4" />
+              Add email
+            </Link>
+            <Button icon="plus" onClick={() => setAdding(true)}>Log activity</Button>
+          </>
+        }
       />
 
       <div className="mb-4 flex flex-wrap items-center gap-2" role="group" aria-label="Filter by activity type">
@@ -51,7 +61,7 @@ export function ActivityPage() {
 
       <div className="mb-4 flex flex-wrap items-center gap-3">
         <SearchInput value={query} onChange={setQuery} placeholder="Search subject, details, company or contact" label="Search activity" />
-        <select value={companyId} onChange={(e) => setCompanyId(e.target.value)} aria-label="Filter by company" className={`${inputClass} w-auto max-w-xs`}>
+        <select value={companyId} onChange={(e) => setCompanyId(e.target.value)} aria-label="Filter by company" className={`${filterSelectClass} max-w-xs`}>
           <option value="">All companies</option>
           {[...companies].sort((a, b) => a.name.localeCompare(b.name)).map((c) => (
             <option key={c.id} value={c.id}>{c.name}</option>
