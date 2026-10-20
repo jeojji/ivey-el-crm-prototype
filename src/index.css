@@ -1,0 +1,28 @@
+@import "tailwindcss";
+
+@theme {
+  --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+
+  /* Ivey Green (Pantone 3308, #034638) is ivey-700. Lighter and darker steps are for tints and hovers. */
+  --color-ivey-50: #eef6f3;
+  --color-ivey-100: #d4e8e0;
+  --color-ivey-200: #a8d0c1;
+  --color-ivey-300: #72b09b;
+  --color-ivey-400: #3f8b74;
+  --color-ivey-500: #1d6c57;
+  --color-ivey-600: #0c5845;
+  --color-ivey-700: #034638;
+  --color-ivey-800: #02382d;
+  --color-ivey-900: #012920;
+}
+
+@layer base {
+  html {
+    background-color: var(--color-neutral-50);
+    color: var(--color-neutral-900);
+    -webkit-font-smoothing: antialiased;
+  }
+  ::selection {
+    background-color: var(--color-ivey-100);
+  }
+}
