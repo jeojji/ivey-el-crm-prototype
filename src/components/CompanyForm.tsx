@@ -1,10 +1,10 @@
-import { useState, type FormEvent } from 'react';
+import { useRef, useState, type FormEvent } from 'react';
 import { useData } from '../state/DataContext';
 import { useToast } from '../state/ToastContext';
 import { INDUSTRIES, PARTNER_STATUSES, PRIORITIES, PROJECT_TYPES } from '../lib/options';
 import { isValidIsoDate, isValidPhone, isValidWebsite, normalizeWebsite, type FieldErrors } from '../lib/validation';
 import type { Address, Company } from '../types';
-import { CheckboxGroupField, FormErrorSummary, FormSection, SelectField, TextAreaField, TextField, picklist } from './ui';
+import { CheckboxGroupField, CollapsibleSection, FormErrorSummary, FormSection, SelectField, TextAreaField, TextField, filledSummary, focusFirstInvalid, picklist } from './ui';
 import { ModalFooter } from './Modal';
 
 type Field = 'name' | 'website' | 'phone' | 'lastProjectDate';
@@ -31,6 +31,8 @@ export function CompanyForm({ company, onSaved, onCancel }: {
   const [errors, setErrors] = useState<FieldErrors<Field>>({});
   const [attempted, setAttempted] = useState(false);
   const [saving, setSaving] = useState(false);
+  const formRef = useRef<HTMLFormElement>(null);
+  const [failedSaves, setFailedSaves] = useState(0);
 
   const setAddr = (key: keyof Address) => (v: string) => setAddress((a) => ({ ...a, [key]: v }));
 
@@ -51,7 +53,10 @@ export function CompanyForm({ company, onSaved, onCancel }: {
     setAttempted(true);
     const found = validate();
     setErrors(found);
-    if (Object.keys(found).length) return;
+    if (Object.keys(found).length) {
+      setFailedSaves((n) => n + 1);
+      return focusFirstInvalid(formRef.current);
+    }
 
     setSaving(true);
     const input = {
@@ -84,35 +89,40 @@ export function CompanyForm({ company, onSaved, onCancel }: {
   }
 
   return (
-    <form onSubmit={handleSubmit} noValidate>
+    <form ref={formRef} onSubmit={handleSubmit} noValidate>
       <FormErrorSummary show={attempted && Object.keys(errors).length > 0} />
-      <div className="space-y-6">
-        <FormSection title="Basics">
+      <div className="space-y-4">
+        <FormSection title="Company">
           <TextField className="sm:col-span-2" label="Company name" value={name} onChange={setName} required error={errors.name} autoFocus />
           <SelectField className="sm:col-span-2" label="Industry" value={industry} onChange={setIndustry} options={picklist(INDUSTRIES)} />
           <TextField label="Website" value={website} onChange={setWebsite} placeholder="example.com" error={errors.website} />
           <TextField label="Company phone" type="tel" value={phone} onChange={setPhone} placeholder="+1-519-555-0100" error={errors.phone} />
+          <TextAreaField className="sm:col-span-2" label="Relationship notes" value={notes} onChange={setNotes} rows={3} placeholder="Relationship context: preferences, timing, who decides" />
         </FormSection>
 
-        <FormSection title="Address">
+        <p className="pt-1 text-xs text-neutral-500">Optional. Fill these in now or later.</p>
+        <CollapsibleSection
+          title="Partnership classification and participation"
+          summary={filledSummary([priority && `${priority} priority`, statuses.join(', '), projects.length > 0 && `${projects.length} project type${projects.length === 1 ? '' : 's'}`, lastProjectDate && 'last project date'])}
+          revealKey={failedSaves} forceOpen={!!errors.lastProjectDate}
+        >
+          <SelectField label="Partnership priority" value={priority} onChange={setPriority} options={picklist(PRIORITIES)} />
+          <TextField label="Last project participated" type="date" value={lastProjectDate} onChange={setLastProjectDate} error={errors.lastProjectDate} hint="When did this company last engage?" />
+          <CheckboxGroupField className="sm:col-span-2" label="Partner status" options={PARTNER_STATUSES} value={statuses} onChange={setStatuses} hint="Select all that apply." />
+          <CheckboxGroupField className="sm:col-span-2" label="Project participation" options={PROJECT_TYPES} value={projects} onChange={setProjects} columns={3} hint="Every EL project type this company has ever taken part in." />
+        </CollapsibleSection>
+
+        <CollapsibleSection title="Address" summary={filledSummary([address.street, address.city, address.province, address.postalCode, address.country])}>
           <TextField className="sm:col-span-2" label="Street" value={address.street} onChange={setAddr('street')} />
           <TextField label="City" value={address.city} onChange={setAddr('city')} />
           <TextField label="Province / state" value={address.province} onChange={setAddr('province')} placeholder="e.g. Ontario" />
           <TextField label="Postal / ZIP code" value={address.postalCode} onChange={setAddr('postalCode')} />
           <TextField label="Country" value={address.country} onChange={setAddr('country')} placeholder="e.g. Canada" />
-        </FormSection>
+        </CollapsibleSection>
 
-        <FormSection title="Partnership">
-          <SelectField label="Partnership priority" value={priority} onChange={setPriority} options={picklist(PRIORITIES)} />
-          <TextField label="Last project participated" type="date" value={lastProjectDate} onChange={setLastProjectDate} error={errors.lastProjectDate} hint="When did this company last engage?" />
-          <CheckboxGroupField className="sm:col-span-2" label="Partner status" options={PARTNER_STATUSES} value={statuses} onChange={setStatuses} hint="Select all that apply." />
-          <CheckboxGroupField className="sm:col-span-2" label="Project participation" options={PROJECT_TYPES} value={projects} onChange={setProjects} columns={3} hint="Every EL project type this company has ever taken part in." />
-        </FormSection>
-
-        <FormSection title="Notes">
+        <CollapsibleSection title="About the company" summary={description ? 'Filled in' : undefined}>
           <TextAreaField className="sm:col-span-2" label="About the company" value={description} onChange={setDescription} rows={2} placeholder="What the organization does" />
-          <TextAreaField className="sm:col-span-2" label="Relationship notes" value={notes} onChange={setNotes} rows={4} placeholder="Relationship context: preferences, timing, who decides" />
-        </FormSection>
+        </CollapsibleSection>
       </div>
       <ModalFooter onCancel={onCancel} submitLabel={company ? 'Save changes' : 'Add company'} saving={saving} />
     </form>

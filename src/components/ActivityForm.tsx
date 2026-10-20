@@ -13,8 +13,18 @@ import { ModalFooter } from './Modal';
 
 type Field = 'subject' | 'occurredAt' | 'link' | 'followUpTitle' | 'followUpDue';
 
-export function ActivityForm({ activity, defaultCompanyId, defaultContactId, defaultApplicationId, onSaved, onCancel }: {
+/** Default start for "Schedule meeting": tomorrow at 10:00. */
+export function tomorrowAtTen(): string {
+  const d = addDays(new Date(), 1);
+  d.setHours(10, 0, 0, 0);
+  return d.toISOString();
+}
+
+export function ActivityForm({ activity, defaultType, defaultOccurredAt, defaultCompanyId, defaultContactId, defaultApplicationId, onSaved, onCancel }: {
   activity?: Activity;
+  defaultType?: ActivityType;
+  /** ISO date-time to start from, e.g. tomorrowAtTen() when scheduling. */
+  defaultOccurredAt?: string;
   defaultCompanyId?: string;
   defaultContactId?: string;
   defaultApplicationId?: string;
@@ -29,9 +39,9 @@ export function ActivityForm({ activity, defaultCompanyId, defaultContactId, def
     activity ? activity.applicationId : defaultApplicationId,
   );
 
-  const [type, setType] = useState<ActivityType>(activity?.type ?? 'meeting');
+  const [type, setType] = useState<ActivityType>(activity?.type ?? defaultType ?? 'meeting');
   const [subject, setSubject] = useState(activity?.subject ?? '');
-  const [occurredAt, setOccurredAt] = useState(toDateTimeLocalValue(activity?.occurredAt ?? new Date().toISOString()));
+  const [occurredAt, setOccurredAt] = useState(toDateTimeLocalValue(activity?.occurredAt ?? defaultOccurredAt ?? new Date().toISOString()));
   const [link, setLink] = useState(initialLink);
   const [details, setDetails] = useState(activity?.details ?? '');
   const [addFollowUp, setAddFollowUp] = useState(false);
@@ -84,7 +94,11 @@ export function ActivityForm({ activity, defaultCompanyId, defaultContactId, def
           completedAt: null,
         });
       }
-      const what = activity ? 'Activity updated' : `${ACTIVITY_LABELS[saved.type]} logged`;
+      const what = activity
+        ? 'Changes saved'
+        : saved.type === 'meeting'
+          ? new Date(saved.occurredAt).getTime() > Date.now() ? 'Meeting scheduled' : 'Meeting notes saved'
+          : `${ACTIVITY_LABELS[saved.type]} saved`;
       notify(addFollowUp ? `${what} and follow-up created.` : `${what}.`);
       onSaved(saved);
     } catch (err) {
@@ -133,13 +147,21 @@ export function ActivityForm({ activity, defaultCompanyId, defaultContactId, def
           hint={
             isFutureDate
               ? type === 'meeting'
-                ? 'This is in the future, so it will show as an upcoming meeting.'
+                ? <>In the future, so it shows as an upcoming meeting. If it has already happened, change this to when it took place{' '}
+                    <button type="button" onClick={() => setOccurredAt(toDateTimeLocalValue(new Date().toISOString()))} className="font-medium text-ivey-700 underline-offset-2 hover:underline">(use now)</button>.</>
                 : 'This date is in the future.'
               : undefined
           }
         />
         <LinkFields value={link} onChange={setLink} error={errors.link} withApplication />
-        <TextAreaField className="col-span-2" label="Details" value={details} onChange={setDetails} rows={5} placeholder="What was discussed, decisions, next steps" />
+        <TextAreaField
+          className="col-span-2"
+          label={type === 'meeting' ? (isFutureDate ? 'Agenda or details (optional)' : 'Meeting notes') : 'Details'}
+          value={details}
+          onChange={setDetails}
+          rows={5}
+          placeholder={type === 'meeting' && isFutureDate ? 'What the meeting is for. Add notes after it happens.' : 'What was discussed, decisions, next steps'}
+        />
       </div>
 
       {!activity && (
@@ -169,7 +191,7 @@ export function ActivityForm({ activity, defaultCompanyId, defaultContactId, def
       <p className="mt-4 text-xs text-neutral-500">
         Entered by hand. This prototype does not read your email or calendar.
       </p>
-      <ModalFooter onCancel={onCancel} submitLabel={activity ? 'Save changes' : `Log ${ACTIVITY_LABELS[type].toLowerCase()}`} saving={saving} />
+      <ModalFooter onCancel={onCancel} submitLabel={activity ? 'Save changes' : type === 'meeting' ? (isFutureDate ? 'Schedule meeting' : 'Save meeting notes') : `Save ${ACTIVITY_LABELS[type].toLowerCase()}`} saving={saving} />
     </form>
   );
 }

@@ -1,5 +1,5 @@
 import { useMemo, useState, type ReactNode } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { useData } from '../state/DataContext';
 import { useToast } from '../state/ToastContext';
 import { createId } from '../lib/id';
@@ -54,6 +54,8 @@ function StepError({ messages }: { messages: string[] }) {
   );
 }
 
+const LAUNCH_REASON = 'The record you started from';
+
 /** Remounting the form (new key) clears every field for a fresh email. */
 export function EmailIntakePage() {
   const [run, setRun] = useState(0);
@@ -65,6 +67,7 @@ function EmailIntake({ onReset }: { onReset: () => void }) {
   const { companies, contacts, applications, companyById, contactById, applicationById } = data;
   const { notify } = useToast();
   const navigate = useNavigate();
+  const [params] = useSearchParams();
   const [step, setStep] = useState<Step>(1);
   const [errors, setErrors] = useState<string[]>([]);
   const [saving, setSaving] = useState(false);
@@ -109,16 +112,26 @@ function EmailIntake({ onReset }: { onReset: () => void }) {
     return { name: fromName.trim(), email: fromEmail.trim().toLowerCase() };
   }, [direction, forwarded, origUnknown, origName, origEmail, fromName, fromEmail, to]);
 
-  const contactSuggestions = useMemo(() => suggestContacts(data.database, partner), [data.database, partner]);
+  // Opened from a record (Add → Email): that record is offered, labelled, and pre-selected unless
+  // the email address matches someone else exactly. Every link is still confirmed on the next steps.
+  const launchApp = applicationById.get(params.get('application') ?? '');
+  const launchContact = contactById.get(params.get('contact') ?? '') ?? (launchApp?.primaryContactId ? contactById.get(launchApp.primaryContactId) : undefined);
+  const launchCompany = companyById.get(params.get('company') ?? '') ?? (launchApp ? companyById.get(launchApp.companyId) : undefined) ?? (launchContact?.companyId ? companyById.get(launchContact.companyId) : undefined);
+  const launchLabel = [launchCompany?.name, launchContact && fullName(launchContact), launchApp?.title].filter(Boolean).join(' · ');
+
+  const contactSuggestions = useMemo(() => {
+    const found = suggestContacts(data.database, partner);
+    return launchContact && !found.some((f) => f.contact.id === launchContact.id) ? [...found, { contact: launchContact, reason: LAUNCH_REASON }] : found;
+  }, [data.database, partner, launchContact]);
 
   // Resolved choices
   const contactId =
     contactChoice.startsWith('existing:') ? contactChoice.slice(9) : contactChoice === 'other' ? otherContactId : null;
   const chosenContact = contactId ? contactById.get(contactId) : undefined;
-  const companySuggestions = useMemo(
-    () => suggestCompanies(data.database, { companyName: companyHint, email: partner.email, contact: chosenContact }),
-    [data.database, companyHint, partner.email, chosenContact],
-  );
+  const companySuggestions = useMemo(() => {
+    const found = suggestCompanies(data.database, { companyName: companyHint, email: partner.email, contact: chosenContact });
+    return launchCompany && !found.some((f) => f.company.id === launchCompany.id) ? [...found, { company: launchCompany, reason: LAUNCH_REASON }] : found;
+  }, [data.database, companyHint, partner.email, chosenContact, launchCompany]);
   const companyId = companyChoice.startsWith('existing:') ? companyChoice.slice(9) : companyChoice === 'other' ? otherCompanyId : null;
   const chosenCompany = companyId ? companyById.get(companyId) : undefined;
   // Applications offered are the chosen company's only, so the email's links always agree.
@@ -196,6 +209,11 @@ function EmailIntake({ onReset }: { onReset: () => void }) {
       if (exact.length === 1) {
         setContactChoice(`existing:${exact[0].contact.id}`);
         if (exact[0].contact.companyId) setCompanyChoice(`existing:${exact[0].contact.companyId}`);
+        if (launchApp && exact[0].contact.companyId === launchApp.companyId) setAppChoice(`existing:${launchApp.id}`);
+      } else if (launchContact || launchCompany) {
+        if (launchContact) setContactChoice(`existing:${launchContact.id}`);
+        if (launchCompany) setCompanyChoice(`existing:${launchCompany.id}`);
+        if (launchApp && launchApp.companyId === launchCompany?.id) setAppChoice(`existing:${launchApp.id}`);
       }
       setStep2Seeded(true);
     }
@@ -361,6 +379,12 @@ function EmailIntake({ onReset }: { onReset: () => void }) {
         })}
       </ol>
 
+      {launchLabel && step < 4 && (
+        <p className="mb-4 flex items-center gap-2 text-sm text-neutral-700">
+          <Icon name="info" className="h-4 w-4 shrink-0 text-ivey-700" />
+          Started from <strong className="font-semibold">{launchLabel}</strong>. It's pre-selected in the next steps, where you confirm or change the links.
+        </p>
+      )}
       <StepError messages={errors} />
 
       {step === 1 && (
@@ -438,7 +462,7 @@ function EmailIntake({ onReset }: { onReset: () => void }) {
             <div className="space-y-2" role="radiogroup" aria-label="Contact">
               {contactSuggestions.map(({ contact: c, reason }) => (
                 <Choice key={c.id} name="contact" value={`existing:${c.id}`} checked={contactChoice === `existing:${c.id}`} onSelect={chooseContact}
-                  title={<span className="flex flex-wrap items-center gap-2">{fullName(c)} <Badge className={reason === 'Same email address' ? 'bg-ivey-50 text-ivey-800 ring-ivey-200' : 'bg-amber-50 text-amber-900 ring-amber-300'}>{reason}</Badge>{c.priority === DO_NOT_CONTACT && <Badge className="bg-red-50 text-red-800 ring-red-300">Do Not Contact</Badge>}</span>}
+                  title={<span className="flex flex-wrap items-center gap-2">{fullName(c)} <Badge className={reason === 'Same email address' || reason === LAUNCH_REASON ? 'bg-ivey-50 text-ivey-800 ring-ivey-200' : 'bg-amber-50 text-amber-900 ring-amber-300'}>{reason}</Badge>{c.priority === DO_NOT_CONTACT && <Badge className="bg-red-50 text-red-800 ring-red-300">Do Not Contact</Badge>}</span>}
                   detail={[c.email, c.companyId ? companyById.get(c.companyId)?.name : 'No company'].filter(Boolean).join(' · ')} />
               ))}
               <Choice name="contact" value="other" checked={contactChoice === 'other'} onSelect={chooseContact} title="Choose another existing contact">
@@ -463,7 +487,7 @@ function EmailIntake({ onReset }: { onReset: () => void }) {
             <div className="mt-4 space-y-2" role="radiogroup" aria-label="Company">
               {companySuggestions.map(({ company: c, reason }) => (
                 <Choice key={c.id} name="company" value={`existing:${c.id}`} checked={companyChoice === `existing:${c.id}`} onSelect={chooseCompany}
-                  title={<span className="flex flex-wrap items-center gap-2">{c.name} <Badge className={reason === 'Same name' || reason.startsWith('The contact') ? 'bg-ivey-50 text-ivey-800 ring-ivey-200' : 'bg-amber-50 text-amber-900 ring-amber-300'}>{reason}</Badge></span>}
+                  title={<span className="flex flex-wrap items-center gap-2">{c.name} <Badge className={reason === 'Same name' || reason.startsWith('The contact') || reason === LAUNCH_REASON ? 'bg-ivey-50 text-ivey-800 ring-ivey-200' : 'bg-amber-50 text-amber-900 ring-amber-300'}>{reason}</Badge></span>}
                   detail={[c.industry, c.address.city].filter(Boolean).join(' · ') || undefined} />
               ))}
               <Choice name="company" value="other" checked={companyChoice === 'other'} onSelect={chooseCompany} title="Choose another existing company">

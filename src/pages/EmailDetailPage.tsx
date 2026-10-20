@@ -10,6 +10,7 @@ import { Icon } from '../components/Icon';
 import { ConfirmDialog, Modal, ModalFooter } from '../components/Modal';
 import { LinkFields, type Link as Links } from '../components/LinkFields';
 import type { Activity, ActivityEdit } from '../types';
+import { MoreActions } from '../components/Menu';
 
 const FIELD_LABEL: Record<(typeof TRACKED_ACTIVITY_FIELDS)[number], string> = {
   subject: 'Subject',
@@ -157,7 +158,7 @@ export function EmailDetailPage() {
         actions={
           <>
             <Button variant="secondary" icon="pencil" onClick={() => setModal('edit')}>Correct links or details</Button>
-            <Button variant="secondary" icon="trash" onClick={() => setModal('delete')}>Delete</Button>
+            <MoreActions items={[{ label: 'Delete email…', icon: 'trash', danger: true, onSelect: () => setModal('delete') }]} />
           </>
         }
       />

@@ -56,20 +56,20 @@ All names, emails (`.example`) and phone numbers (555-01xx) are fictional.
 | # | Do this | Point out |
 | --- | --- | --- |
 | 1 | **Import & export** → Import **Companies** → choose `demo-accounts.csv` → **Review import** → **Import 5…**. Then click **Import contacts next** → choose `demo-contacts.csv` → **Review import** → **Import 7…**. | The preview runs before anything is saved, Lauren's template headers are mapped automatically, every contact is matched to its company, and Owen Hart arrives flagged **Do Not Contact**. |
-| 2 | **Add email** → paste the text of `demo-application-email.txt` into **Original message**. Fill in Subject and Date sent. | The original email is stored exactly as pasted and can't be edited later. |
+| 2 | On **Home**, click **Add → Email**. Paste the text of `demo-application-email.txt` into **Original message**. Fill in Subject and Date sent. | The original email is stored exactly as pasted and can't be edited later. |
 | 3 | Click **Suggest details with local AI** (about 20 s). Untick anything you disagree with, then click **Apply selected to the form**. | **AI suggestion**: each item shows the words from the email it came from, and missing details are listed as missing instead of guessed. Nothing is saved yet. |
 | 4 | **Continue** → the app matches Mira Castellanos and Aster Labs that you imported → **Continue** → choose **Create a new application** (pre-filled: MBA Ivey Field Project, Winter 2027), set Stage to *Application submitted* → **Review** → **Confirm and save**. | One confirmation saves the email, the links and the application together. No duplicate company or contact is created. |
-| 5 | On the application page, click **Log activity** → Meeting, subject "Scoping meeting with Mira", a date 3 days from now → **Log meeting**. Open the **Dashboard**. | The meeting shows under **Upcoming meetings**. No calendar is connected: this only records it. |
-| 6 | Back on the application, click the meeting's **Edit** (pencil) → set the date to today and add notes, e.g. "Mira will share anonymized trial-usage data by November 14. Still open: who signs the data agreement." → Save. | Recording what happened. The edit is kept in the meeting's history. |
+| 5 | On the application page, click **Add → Schedule meeting**. Subject "Scoping meeting with Mira", a date 3 days from now → **Schedule meeting**. Open **Home**. | The company, Mira and the application were filled in from the page. The meeting shows under **Upcoming meetings**. No calendar is connected: this only records it. |
+| 6 | Back on the application, click **Add meeting notes** under the meeting → **(use now)** to set today's date → type the notes, e.g. "Mira will share anonymized trial-usage data by November 14. Still open: who signs the data agreement." → **Save changes**. | Scheduling and recording what happened are separate, clearly named steps. The edit is kept in the meeting's history. |
 | 7 | Click **Prepare for conversation** → keep the suggested records ticked → **Generate brief and conversation prep** (about 35 s). | Two clearly separated parts. **Recorded facts** each quote the record they came from, and anything that couldn't be traced is removed. **AI suggestions** (agenda, next steps, email draft) are labelled "Review before use". Nothing is sent. |
-| 8 | Under **Suggested next steps**, tick one, edit the wording (e.g. "Ask Mira who signs the data agreement"), set a due date → **Create 1 follow-up** → confirm **Create follow-ups**. | No follow-up is created until you confirm the wording and due date. Then open **Follow-ups** and the **Dashboard**, which both show it. |
+| 8 | Under **Suggested next steps**, tick one, edit the wording (e.g. "Ask Mira who signs the data agreement"), set a due date → **Create 1 follow-up** → confirm **Create follow-ups**. | No follow-up is created until you confirm the wording and due date. Then open **Follow-ups** and **Home**, which both show it. |
 | 9 | On the application, click **Record feedback** → From *Corporate partner*, the feedback text, a **Project outcome** and the **Positive feedback** flag → Save. | The original feedback text can't be edited later. Flags are set by a person, never decided by the app. |
-| 10 | Open **Companies → Aster Labs**, then **Contacts → Mira Castellanos**. | The same email, meeting, application, follow-up, brief and feedback appear consistently everywhere they belong. |
+| 10 | Open **Companies → Aster Labs**. Then click the **History** tab, and open **Contacts → Mira Castellanos**. | The top of the company page answers who the contact is, what happened last, which applications are open and the next follow-up. The latest brief can be opened without making a new one. The same records appear consistently on every page. |
 | 11 | Finish on **Prototype & data** → "What works where". | Shows what works, what is an AI suggestion, and what isn't connected. |
 
 **In the public demo (Mode 1)**, steps 3 and 7 show "Not available in the online demo". Fill in the
-email details by hand in step 3, and skip step 7 (create the follow-up from **Follow-ups → Add
-follow-up** instead).
+email details by hand in step 3, and skip step 7 (create the follow-up with **Add → Follow-up**
+on the application instead).
 
 **If the AI is slow or not running**, the panel says so and you can continue by hand. The demo
 never depends on it.

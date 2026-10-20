@@ -1,4 +1,4 @@
-import { useId, type ButtonHTMLAttributes, type ReactNode } from 'react';
+import { useId, useRef, useState, type ButtonHTMLAttributes, type ReactNode } from 'react';
 import { Link } from 'react-router-dom';
 import { Icon, type IconName } from './Icon';
 import { DO_NOT_CONTACT, PARTNER_STATUSES, shortLabel } from '../lib/options';
@@ -75,7 +75,7 @@ export function PageHeader({ title, description, actions, back }: {
           <h1 className="text-2xl font-semibold tracking-tight text-neutral-950">{title}</h1>
           {description && <div className="mt-1.5 text-sm text-neutral-600">{description}</div>}
         </div>
-        {actions && <div className="flex shrink-0 flex-wrap items-center gap-2">{actions}</div>}
+        {actions && <div className="flex max-w-full flex-wrap items-center gap-2">{actions}</div>}
       </div>
     </div>
   );
@@ -404,6 +404,119 @@ export function FormSection({ title, description, children }: { title: string; d
       {description && <p className="mt-0.5 text-xs text-neutral-500">{description}</p>}
       <div className="mt-4 grid grid-cols-1 gap-x-4 gap-y-5 sm:grid-cols-2">{children}</div>
     </section>
+  );
+}
+
+/**
+ * An optional group of fields that starts collapsed, so forms open short. `summary` says what's
+ * already filled in while it's closed. It opens itself when `forceOpen` turns true (a field inside
+ * has a validation error). Closed fields stay mounted (hidden), so their values are never lost.
+ */
+export function CollapsibleSection({ title, summary, forceOpen = false, revealKey, defaultOpen = false, children }: {
+  title: string;
+  summary?: string;
+  forceOpen?: boolean;
+  /** Changes on every failed save (e.g. a counter), so a section with errors reopens even if it was closed again. */
+  revealKey?: number;
+  defaultOpen?: boolean;
+  children: ReactNode;
+}) {
+  const [open, setOpen] = useState(defaultOpen || forceOpen);
+  const id = useId();
+  // Opened during render (not in an effect), so the fields exist before focus moves to the first error.
+  const trigger = forceOpen ? `${revealKey ?? 0}` : '';
+  const [lastTrigger, setLastTrigger] = useState(trigger);
+  if (trigger !== lastTrigger) {
+    setLastTrigger(trigger);
+    if (forceOpen) setOpen(true);
+  }
+  return (
+    <section className="rounded-lg border border-neutral-200">
+      <h3>
+        <button
+          type="button"
+          aria-expanded={open}
+          aria-controls={id}
+          onClick={() => setOpen((o) => !o)}
+          className="flex w-full items-center gap-3 rounded-lg px-4 py-3 text-left hover:bg-neutral-50 focus-visible:outline-2 focus-visible:outline-ivey-600"
+        >
+          <Icon name="chevronRight" className={`h-4 w-4 shrink-0 text-neutral-500 transition-transform ${open ? 'rotate-90' : ''}`} />
+          <span className="text-sm font-semibold text-neutral-950">{title}</span>
+          <span className="ml-auto truncate pl-2 text-xs text-neutral-500">{summary || (open ? '' : 'Optional')}</span>
+        </button>
+      </h3>
+      <div id={id} hidden={!open} className="grid grid-cols-1 gap-x-4 gap-y-5 border-t border-neutral-100 px-4 pt-4 pb-5 sm:grid-cols-2">
+        {children}
+      </div>
+    </section>
+  );
+}
+
+/** After a failed save, move keyboard focus to the first field with an error (once sections have opened). */
+export function focusFirstInvalid(form: HTMLFormElement | null) {
+  window.setTimeout(() => form?.querySelector<HTMLElement>('[aria-invalid="true"]')?.focus(), 0);
+}
+
+/** Short "what's filled in" text for a collapsed section: the non-empty values, joined. */
+export function filledSummary(parts: (string | false | null | undefined)[]): string {
+  return parts.filter(Boolean).join(' · ');
+}
+
+/**
+ * Accessible tabs: arrow keys move between tabs, Home/End jump to the ends, only the active tab is
+ * in the tab order. The parent owns the selected tab (e.g. stored in the URL so links keep working).
+ */
+export function Tabs<T extends string>({ label, tabs, value, onChange }: {
+  label: string;
+  tabs: { id: T; label: string; count?: number }[];
+  value: T;
+  onChange: (id: T) => void;
+}) {
+  const refs = useRef<(HTMLButtonElement | null)[]>([]);
+  const move = (i: number) => {
+    const next = (i + tabs.length) % tabs.length;
+    onChange(tabs[next].id);
+    refs.current[next]?.focus();
+  };
+  return (
+    <div role="tablist" aria-label={label} className="mb-6 flex gap-1 overflow-x-auto border-b border-neutral-200">
+      {tabs.map((t, i) => {
+        const selected = t.id === value;
+        return (
+          <button
+            key={t.id}
+            ref={(el) => { refs.current[i] = el; }}
+            type="button"
+            role="tab"
+            id={`tab-${t.id}`}
+            aria-selected={selected}
+            aria-controls={`panel-${t.id}`}
+            tabIndex={selected ? 0 : -1}
+            onClick={() => onChange(t.id)}
+            onKeyDown={(e) => {
+              if (e.key === 'ArrowRight') { e.preventDefault(); move(i + 1); }
+              else if (e.key === 'ArrowLeft') { e.preventDefault(); move(i - 1); }
+              else if (e.key === 'Home') { e.preventDefault(); move(0); }
+              else if (e.key === 'End') { e.preventDefault(); move(tabs.length - 1); }
+            }}
+            className={`-mb-px flex shrink-0 items-center gap-2 border-b-2 px-3 py-2.5 text-sm font-medium focus-visible:outline-2 focus-visible:outline-ivey-600 ${
+              selected ? 'border-ivey-700 text-ivey-800' : 'border-transparent text-neutral-600 hover:border-neutral-300 hover:text-neutral-900'
+            }`}
+          >
+            {t.label}
+            {t.count !== undefined && <span className={`rounded-full px-1.5 text-xs tabular-nums ${selected ? 'bg-ivey-50 text-ivey-800' : 'bg-neutral-100 text-neutral-600'}`}>{t.count}</span>}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+export function TabPanel({ id, children }: { id: string; children: ReactNode }) {
+  return (
+    <div role="tabpanel" id={`panel-${id}`} aria-labelledby={`tab-${id}`} tabIndex={0} className="focus-visible:outline-none">
+      {children}
+    </div>
   );
 }
 

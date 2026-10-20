@@ -29,7 +29,7 @@ export function CampaignsPage() {
       <PageHeader
         title="Campaigns"
         description="Track outreach for project invitations, partner renewals and surveys. Each person's campaign status is separate from their company's status and any application stage. Emails are sent from your own email program; this app only records them."
-        actions={<Button icon="plus" onClick={() => setAdding(true)}>New campaign</Button>}
+        actions={<Button icon="plus" onClick={() => setAdding(true)}>Add campaign</Button>}
       />
       <div className="mb-4 flex flex-wrap items-center gap-3">
         <SearchInput value={query} onChange={setQuery} placeholder="Search campaigns" label="Search campaigns" />
@@ -45,7 +45,7 @@ export function CampaignsPage() {
 
       <Card padded={false}>
         {campaigns.length === 0 ? (
-          <EmptyState icon="mail" title="No campaigns yet" message="Create a campaign to track invitations, renewals or surveys person by person." action={<Button icon="plus" onClick={() => setAdding(true)}>New campaign</Button>} />
+          <EmptyState icon="mail" title="No campaigns yet" message="Create a campaign to track invitations, renewals or surveys person by person." action={<Button icon="plus" onClick={() => setAdding(true)}>Add campaign</Button>} />
         ) : rows.length === 0 ? (
           <EmptyState icon="search" title="No campaigns match" action={<Button variant="secondary" onClick={() => { setQuery(''); setPurpose(''); setState(''); }}>Clear filters</Button>} />
         ) : (
@@ -86,7 +86,7 @@ export function CampaignsPage() {
         )}
       </Card>
 
-      <Modal open={adding} onClose={() => setAdding(false)} title="New campaign" description="Fictional data only in this prototype." size="xl">
+      <Modal open={adding} onClose={() => setAdding(false)} title="Add campaign" description="Fictional data only in this prototype." size="xl">
         <CampaignForm onSaved={(c) => { setAdding(false); if (c) navigate(`/campaigns/${c.id}`); }} onCancel={() => setAdding(false)} />
       </Modal>
     </>

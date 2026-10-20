@@ -87,7 +87,9 @@ function ActivityItem({ activity, hideCompany, hideContact, hideApplication, upc
   const campaign = activity.campaignId ? campaigns.find((c) => c.id === activity.campaignId) : undefined;
   const navigate = useNavigate();
   const { notify } = useToast();
-  const [editing, setEditing] = useState(false);
+  const [editing, setEditing] = useState<false | 'edit' | 'notes'>(false);
+  // A meeting that's scheduled, or happened without notes, offers "Add meeting notes" directly.
+  const offerNotes = activity.type === 'meeting' && !activity.email && (upcoming || !activity.details.trim());
   const [confirming, setConfirming] = useState(false);
   const company = activity.companyId ? companyById.get(activity.companyId) : undefined;
   const contact = activity.contactId ? contactById.get(activity.contactId) : undefined;
@@ -129,7 +131,7 @@ function ActivityItem({ activity, hideCompany, hideContact, hideApplication, upc
             </p>
           </div>
           <div className="flex gap-1 opacity-70 group-hover:opacity-100 focus-within:opacity-100">
-            <button type="button" onClick={() => (activity.email ? navigate(`/emails/${activity.id}`) : setEditing(true))} className="rounded p-1.5 text-neutral-500 hover:bg-neutral-100 hover:text-neutral-900" aria-label={`Edit "${activity.subject}"`}>
+            <button type="button" onClick={() => (activity.email ? navigate(`/emails/${activity.id}`) : setEditing('edit'))} className="rounded p-1.5 text-neutral-500 hover:bg-neutral-100 hover:text-neutral-900" aria-label={`Edit "${activity.subject}"`}>
               <Icon name="pencil" className="h-4 w-4" />
             </button>
             <button type="button" onClick={() => setConfirming(true)} className="rounded p-1.5 text-neutral-500 hover:bg-red-50 hover:text-red-700" aria-label={`Delete "${activity.subject}"`}>
@@ -180,9 +182,21 @@ function ActivityItem({ activity, hideCompany, hideContact, hideApplication, upc
           </p>
         )}
         {activity.details && <p className="mt-2 text-sm whitespace-pre-line text-neutral-700">{activity.details}</p>}
+        {offerNotes && (
+          <button type="button" onClick={() => setEditing('notes')} className="mt-2 inline-flex items-center gap-1.5 rounded-md border border-neutral-300 bg-white px-2.5 py-1 text-xs font-medium text-neutral-800 shadow-xs hover:bg-neutral-50">
+            <Icon name="note" className="h-3.5 w-3.5" />
+            Add meeting notes
+          </button>
+        )}
       </div>
 
-      <Modal open={editing} onClose={() => setEditing(false)} title="Edit activity" size="lg">
+      <Modal
+        open={!!editing}
+        onClose={() => setEditing(false)}
+        title={editing === 'notes' ? 'Add meeting notes' : `Edit ${ACTIVITY_LABELS[activity.type].toLowerCase()}`}
+        description={editing === 'notes' && upcoming ? 'Still dated in the future. If it has happened, change the date to when it took place.' : undefined}
+        size="lg"
+      >
         <ActivityForm activity={activity} onSaved={() => setEditing(false)} onCancel={() => setEditing(false)} />
       </Modal>
       <ConfirmDialog

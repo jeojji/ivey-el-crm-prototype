@@ -44,7 +44,7 @@ export default function App() {
           path="*"
           element={
             <Card>
-              <EmptyState title="Page not found" action={<Link to="/" className="text-sm font-medium text-ivey-700 hover:underline">Go to the dashboard</Link>} />
+              <EmptyState title="Page not found" action={<Link to="/" className="text-sm font-medium text-ivey-700 hover:underline">Go to Home</Link>} />
             </Card>
           }
         />

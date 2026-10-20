@@ -9,6 +9,7 @@ import { Badge, Button, Card, EmptyState, PageHeader, PriorityBadge, SearchInput
 import { Icon } from '../components/Icon';
 import { Modal } from '../components/Modal';
 import { CompanyForm } from '../components/CompanyForm';
+import { AddMenu } from '../components/AddMenu';
 
 const REVIEW = '__review';
 
@@ -52,7 +53,7 @@ export function CompaniesPage() {
       <PageHeader
         title="Companies"
         description={`${companies.length} organization${companies.length === 1 ? '' : 's'} in the workspace`}
-        actions={<Button icon="plus" onClick={() => setAdding(true)}>Add company</Button>}
+        actions={<AddMenu />}
       />
 
       <div className="mb-4 flex flex-wrap items-center gap-3">

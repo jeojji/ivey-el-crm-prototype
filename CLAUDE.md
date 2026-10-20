@@ -22,7 +22,7 @@ Whether the final system complements Salesforce or replaces some of its workflow
 - Browser localStorage is prototype persistence only. It is **not** a secure or shared
   database, and the UI says so.
 - **This is a standalone prototype of Lauren's requested workflows.** Never claim it configures
-  or connects to Salesforce. Out of scope until asked: login, campaigns, opportunities/pipeline,
+  or connects to Salesforce. Out of scope until asked: login and sharing,
   email sending, live integrations.
 - **`reference/` holds Lauren's real files (Word request + Salesforce CSV templates with real
   contact details).** It is git-ignored. Never copy its contents, names or contact details into
@@ -229,6 +229,27 @@ server/
 - Every record has `id`, `createdAt` and `updatedAt`. Activities record `source: 'manual'`
   so imported or synced records can be told apart later.
 
+## UI conventions (daily-use simplification, 2026-10-20)
+- **Navigation** (`components/Layout.tsx`): Home, Companies, Contacts, Applications, Follow-ups; a collapsible
+  **More** (Campaigns, Activity history, Conversation prep; opens itself on those pages); a smaller
+  **Administration** group (Import & export, Prototype & data). Add email is an action, not a destination.
+  Never remove or rename a route: old links must keep working.
+- **+ Add** (`components/AddMenu.tsx`): the one creation menu in every page header: Email, Call or note, Meeting
+  notes, Schedule meeting, Follow-up, Company, Contact, Application. Pass the page's record
+  (`companyId` / `contactId` / `applicationId`) so forms are prefilled. Email goes to `/emails/new?company=&contact=&application=`.
+  Don't add competing "Add …"/"Log …" buttons to headers; empty states may keep a direct button.
+- **More** (`MoreActions` in `components/Menu.tsx`): Delete and other rare record actions. Never a header Delete button.
+- **Meetings**: "Schedule meeting" (future, default tomorrow 10:00) vs "Add meeting notes" (what happened;
+  the timeline offers it on scheduled meetings and meetings without notes). ActivityForm takes `defaultType`/`defaultOccurredAt`.
+- **Company profile**: four answers at the top (who is the contact, latest exchange, open applications, next
+  follow-up), feedback flags always visible, then tabs Overview / Applications / History / Details (`?tab=`).
+  `LatestBriefCard` shows the newest saved brief on company, contact and application pages.
+- **Forms**: short by default; optional groups use `CollapsibleSection` with a filled-in summary, `forceOpen` +
+  `revealKey` (failed-save counter) so errors reveal their section, and `focusFirstInvalid`. Closed sections keep
+  their fields mounted, so no value is lost.
+- **Home**: Needs attention (overdue, due in 7 days, awaiting review, deadlines; ≤5 each + View all) and Upcoming
+  meetings first; workspace counts and recent activity below.
+
 ## Design rules
 - Desktop-first workspace with a dark Ivey Green sidebar and a light neutral content area.
 - Colours: Ivey Green `#034638` (Tailwind `ivey-700`) as the brand/primary colour, with black,
@@ -292,7 +313,10 @@ server/
     "What works where" table. Fictional demo files in `public/demo/` (5 companies, 7 contacts, 1
     application email; no reference-file values). DEMO.md has the script, both operating modes, the localStorage
     limitation, the SQLite migration proposal and dependencies. The demo journey passed 19/19 with the real model.
-15. **Deploy** ✅ Repo https://github.com/jeojji/ivey-el-crm-prototype (public). Live at
+15. **Daily-use simplification** ✅ (2026-10-20, pushed 2026-10-20) Navigation, + Add menu, Home, company tabs, short
+    forms, conversation prep (saved briefs first, Adjust sources), wording. No data-model change. Verified by a
+    58-check walkthrough (keyboard, focus, deep links, phone width, data unchanged by viewing) plus all suites.
+16. **Deploy** ✅ Repo https://github.com/jeojji/ivey-el-crm-prototype (public). Live at
    https://jeojji.github.io/ivey-el-crm-prototype/. Every push to `main` rebuilds and
    redeploys via `.github/workflows/deploy.yml` (Pages source: GitHub Actions).
 

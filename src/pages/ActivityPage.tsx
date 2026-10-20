@@ -1,20 +1,19 @@
 import { useMemo, useState } from 'react';
-import { Link } from 'react-router-dom';
-import { Icon } from '../components/Icon';
+import { useSearchParams } from 'react-router-dom';
 import { useData } from '../state/DataContext';
 import { ACTIVITY_LABELS, fullName, matchesQuery } from '../lib/selectors';
 import { ACTIVITY_TYPES, type ActivityType } from '../types';
 import { Button, Card, EmptyState, PageHeader, SearchInput, filterSelectClass } from '../components/ui';
-import { Modal } from '../components/Modal';
-import { ActivityForm } from '../components/ActivityForm';
+import { AddMenu } from '../components/AddMenu';
 import { ActivityTimeline, ActivityTypeIcon } from '../components/ActivityTimeline';
 
 export function ActivityPage() {
   const { activities, companies, companyById, contactById } = useData();
   const [query, setQuery] = useState('');
-  const [type, setType] = useState<ActivityType | ''>('');
-  const [companyId, setCompanyId] = useState('');
-  const [adding, setAdding] = useState(false);
+  const [params] = useSearchParams();
+  // ?type=meeting (from Home's "Upcoming meetings") and ?company=<id> open the page pre-filtered.
+  const [type, setType] = useState<ActivityType | ''>(() => (ACTIVITY_TYPES as readonly string[]).includes(params.get('type') ?? '') ? (params.get('type') as ActivityType) : '');
+  const [companyId, setCompanyId] = useState(params.get('company') ?? '');
 
   const filtered = useMemo(
     () =>
@@ -41,15 +40,7 @@ export function ActivityPage() {
       <PageHeader
         title="Activity history"
         description="Every email, call, meeting and note logged in the workspace, newest first."
-        actions={
-          <>
-            <Link to="/emails/new" className="inline-flex items-center gap-2 rounded-md border border-neutral-300 bg-white px-3.5 py-2 text-sm font-medium text-neutral-800 shadow-xs hover:bg-neutral-50">
-              <Icon name="mail" className="h-4 w-4" />
-              Add email
-            </Link>
-            <Button icon="plus" onClick={() => setAdding(true)}>Log activity</Button>
-          </>
-        }
+        actions={<AddMenu companyId={companyId || undefined} />}
       />
 
       <div className="mb-4 flex flex-wrap items-center gap-2" role="group" aria-label="Filter by activity type">
@@ -75,8 +66,7 @@ export function ActivityPage() {
           activities={filtered}
           emptyState={
             activities.length === 0 ? (
-              <EmptyState icon="activity" title="No activity logged yet" message="Log your first email, call, meeting or note against a company or contact."
-                action={<Button icon="plus" onClick={() => setAdding(true)}>Log activity</Button>} />
+              <EmptyState icon="activity" title="No activity yet" message="Use Add to record an email, call, meeting or note against a company or contact." />
             ) : (
               <EmptyState icon="search" title="No activity matches these filters"
                 action={<Button variant="secondary" onClick={() => { setQuery(''); setType(''); setCompanyId(''); }}>Clear filters</Button>} />
@@ -84,10 +74,6 @@ export function ActivityPage() {
           }
         />
       </Card>
-
-      <Modal open={adding} onClose={() => setAdding(false)} title="Log activity" size="lg">
-        <ActivityForm defaultCompanyId={companyId || undefined} onSaved={() => setAdding(false)} onCancel={() => setAdding(false)} />
-      </Modal>
     </>
   );
 }

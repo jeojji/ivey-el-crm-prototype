@@ -11,6 +11,7 @@ import type { Brief, Database } from '../types';
 import { Badge, Button, Card, EmptyState, PageHeader, inputClass } from '../components/ui';
 import { Icon } from '../components/Icon';
 import { ConfirmDialog, Modal } from '../components/Modal';
+import { MoreActions } from '../components/Menu';
 
 /** Where a cited record lives in the app. */
 function sourceHref(db: Database, kind: Brief['sources'][number]['kind'], recordId: string): string | null {
@@ -161,7 +162,7 @@ export function BriefPage() {
         actions={
           <>
             <Link to={regenerateHref} className="inline-flex items-center gap-2 rounded-md border border-neutral-300 bg-white px-3.5 py-2 text-sm font-medium text-neutral-800 shadow-xs hover:bg-neutral-50">Regenerate…</Link>
-            <Button variant="secondary" icon="trash" onClick={() => setConfirmDelete(true)}>Delete</Button>
+            <MoreActions items={[{ label: 'Delete brief…', icon: 'trash', danger: true, onSelect: () => setConfirmDelete(true) }]} />
           </>
         }
       />

@@ -13,6 +13,7 @@ import { Icon } from '../components/Icon';
 import { ConfirmDialog, Modal } from '../components/Modal';
 import { CampaignForm, CampaignStateBadge } from '../components/campaigns';
 import { ActivityTimeline } from '../components/ActivityTimeline';
+import { MoreActions } from '../components/Menu';
 
 async function copy(text: string) {
   try {
@@ -74,7 +75,7 @@ export function CampaignDetailPage() {
           <>
             <Button variant="secondary" icon="pencil" onClick={() => setModal('edit')}>Edit</Button>
             <Button variant="secondary" icon="download" onClick={exportCsv} disabled={campaign.participants.length === 0}>Export participants</Button>
-            <Button variant="secondary" icon="trash" onClick={() => setModal('delete')}>Delete</Button>
+            <MoreActions items={[{ label: 'Delete campaign…', icon: 'trash', danger: true, onSelect: () => setModal('delete') }]} />
             <Button icon="mail" onClick={() => setModal('outreach')} disabled={campaign.participants.length === 0}>Record outreach</Button>
           </>
         }

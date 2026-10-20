@@ -7,6 +7,7 @@ import { APPLICATION_PROJECT_TYPES, APPLICATION_STAGES, PROGRAMS, STAGE_MEANINGS
 import { Button, Card, EmptyState, PageHeader, SearchInput, filterSelectClass } from '../components/ui';
 import { Modal } from '../components/Modal';
 import { ApplicationForm, DeadlineText, StageBadge, StageSelect } from '../components/applications';
+import { AddMenu } from '../components/AddMenu';
 
 type View = 'list' | 'pipeline';
 const OPEN = '__open';
@@ -63,7 +64,7 @@ export function ApplicationsPage() {
       <PageHeader
         title="Applications"
         description="Engagement opportunities with partners (Lauren's “Opportunities”), not job applications. Each has its own stage, separate from company and contact statuses."
-        actions={<Button icon="plus" onClick={() => setAdding(true)}>Add application</Button>}
+        actions={<AddMenu />}
       />
 
       <div className="mb-4 flex flex-wrap items-center justify-between gap-3">

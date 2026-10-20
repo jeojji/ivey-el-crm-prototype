@@ -11,11 +11,12 @@ import { Icon, type IconName } from '../components/Icon';
 import { LinkedImpact, plural } from '../components/LinkedImpact';
 import { ConfirmDialog, Modal } from '../components/Modal';
 import { ContactForm } from '../components/ContactForm';
-import { ActivityForm } from '../components/ActivityForm';
 import { ActivityTimeline } from '../components/ActivityTimeline';
 import { FollowUpList } from '../components/FollowUpList';
-import { TaskForm } from '../components/TaskForm';
-import { ApplicationForm, ApplicationMiniList } from '../components/applications';
+import { ApplicationMiniList } from '../components/applications';
+import { AddMenu } from '../components/AddMenu';
+import { MoreActions } from '../components/Menu';
+import { LatestBriefCard, latestBriefFor } from '../components/LatestBrief';
 import { termSortKey } from '../lib/applications';
 
 function DetailRow({ icon, label, children }: { icon: IconName; label: string; children: ReactNode }) {
@@ -36,7 +37,7 @@ export function ContactDetailPage() {
   const data = useData();
   const { contactById, companyById, activities, tasks, applications, deleteContact } = data;
   const { notify } = useToast();
-  const [modal, setModal] = useState<'edit' | 'activity' | 'task' | 'application' | 'delete' | null>(null);
+  const [modal, setModal] = useState<'edit' | 'delete' | null>(null);
   const close = () => setModal(null);
 
   const contact = contactById.get(id);
@@ -50,6 +51,7 @@ export function ContactDetailPage() {
 
   const name = fullName(contact);
   const company = contact.companyId ? companyById.get(contact.companyId) : undefined;
+  const prepLink = `/prep?contact=${id}${contact.companyId ? `&company=${contact.companyId}` : ''}`;
   const history = activities.filter((a) => a.contactId === id);
   const openTasks = tasks.filter((t) => t.contactId === id && t.status === 'open').sort(byDueAsc);
   const contactApps = applications.filter((a) => a.primaryContactId === id).sort((a, b) => termSortKey(b) - termSortKey(a) || a.title.localeCompare(b.title));
@@ -94,10 +96,10 @@ export function ContactDetailPage() {
         }
         actions={
           <>
+            <Link to={prepLink} className="inline-flex items-center gap-2 rounded-md border border-neutral-300 bg-white px-3.5 py-2 text-sm font-medium text-neutral-800 shadow-xs hover:bg-neutral-50">Prepare for conversation</Link>
             <Button variant="secondary" icon="pencil" onClick={() => setModal('edit')}>Edit</Button>
-            <Button variant="secondary" icon="trash" onClick={() => setModal('delete')}>Delete</Button>
-            <Link to={`/prep?contact=${id}${contact.companyId ? `&company=${contact.companyId}` : ''}`} className="inline-flex items-center gap-2 rounded-md border border-neutral-300 bg-white px-3.5 py-2 text-sm font-medium text-neutral-800 shadow-xs hover:bg-neutral-50">Prepare for conversation</Link>
-            <Button icon="plus" onClick={() => setModal('activity')}>Log activity</Button>
+            <MoreActions items={[{ label: 'Delete contact…', icon: 'trash', danger: true, onSelect: () => setModal('delete') }]} />
+            <AddMenu contactId={id} />
           </>
         }
       />
@@ -111,15 +113,13 @@ export function ContactDetailPage() {
       <ReviewNotice issues={contactReviewIssues(contact)} />
 
       <div className="grid grid-cols-1 gap-6 xl:grid-cols-3">
-        <div className="xl:col-span-2">
-          <Card title={`Activity history (${history.length})`} action={<Button size="sm" variant="secondary" icon="plus" onClick={() => setModal('activity')}>Log activity</Button>}>
+        <div className="space-y-6 xl:col-span-2">
+          <LatestBriefCard brief={latestBriefFor(data.briefs, (b) => b.contactId === id)} prepLink={prepLink} />
+          <Card title={`History (${history.length})`}>
             <ActivityTimeline
               activities={history}
               hideContact
-              emptyState={
-                <EmptyState compact icon="activity" title={`No activity with ${contact.firstName} yet`} message="Log an email, call, meeting or note to start their history."
-                  action={<Button size="sm" icon="plus" onClick={() => setModal('activity')}>Log activity</Button>} />
-              }
+              emptyState={<EmptyState compact icon="activity" title={`Nothing recorded with ${contact.firstName} yet`} message="Use Add to record an email, call, meeting or note." />}
             />
             {elsewhere > 0 && (
               <p className="mt-2 border-t border-neutral-100 pt-3 text-xs text-neutral-500">
@@ -130,7 +130,7 @@ export function ContactDetailPage() {
         </div>
 
         <div className="space-y-6">
-          <Card title={`Applications as primary contact (${contactApps.length})`} action={<Button size="sm" variant="secondary" icon="plus" onClick={() => setModal('application')}>Add application</Button>}>
+          <Card title={`Applications as primary contact (${contactApps.length})`}>
             {contactApps.length ? <ApplicationMiniList applications={contactApps} showCompany /> : <p className="text-sm text-neutral-600">{contact.firstName} isn't the primary contact on any application.</p>}
           </Card>
 
@@ -176,11 +176,11 @@ export function ContactDetailPage() {
             </dl>
           </Card>
 
-          <Card title={`Open follow-ups (${openTasks.length})`} action={<Button size="sm" variant="secondary" icon="plus" onClick={() => setModal('task')}>Add follow-up</Button>}>
+          <Card title={`Open follow-ups (${openTasks.length})`}>
             {openTasks.length === 0 ? <p className="text-sm text-neutral-600">No open follow-ups with {contact.firstName}.</p> : <FollowUpList tasks={openTasks} showContact={false} />}
           </Card>
 
-          <Card title="Relationship notes" action={<Button size="sm" variant="ghost" icon="pencil" onClick={() => setModal('edit')}>Edit</Button>}>
+          <Card title="Relationship notes" action={<Button size="sm" variant="ghost" icon="pencil" onClick={() => setModal('edit')}>Edit notes</Button>}>
             {contact.notes ? (
               <p className="text-sm whitespace-pre-line text-neutral-700">{contact.notes}</p>
             ) : (
@@ -194,15 +194,6 @@ export function ContactDetailPage() {
 
       <Modal open={modal === 'edit'} onClose={close} title={`Edit ${name}`} size="xl">
         <ContactForm contact={contact} onSaved={close} onCancel={close} />
-      </Modal>
-      <Modal open={modal === 'activity'} onClose={close} title="Log activity" description={company ? `${name} · ${company.name}` : name} size="lg">
-        <ActivityForm defaultContactId={id} onSaved={close} onCancel={close} />
-      </Modal>
-      <Modal open={modal === 'application'} onClose={close} title="Add application" description={company ? `${name} · ${company.name}` : name} size="xl">
-        <ApplicationForm defaultContactId={id} onSaved={close} onCancel={close} />
-      </Modal>
-      <Modal open={modal === 'task'} onClose={close} title="Add follow-up" description={company ? `${name} · ${company.name}` : name} size="lg">
-        <TaskForm defaultContactId={id} onSaved={close} onCancel={close} />
       </Modal>
       <ConfirmDialog
         open={modal === 'delete'}

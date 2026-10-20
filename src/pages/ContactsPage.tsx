@@ -9,6 +9,7 @@ import { Avatar, Badge, Button, Card, EmptyState, PageHeader, PriorityBadge, Sea
 import { Icon } from '../components/Icon';
 import { Modal } from '../components/Modal';
 import { ContactForm } from '../components/ContactForm';
+import { AddMenu } from '../components/AddMenu';
 
 const REVIEW = '__review';
 
@@ -56,7 +57,7 @@ export function ContactsPage() {
       <PageHeader
         title="Contacts"
         description={`${contacts.length} ${contacts.length === 1 ? 'person' : 'people'} across ${companies.length} organization${companies.length === 1 ? '' : 's'}`}
-        actions={<Button icon="plus" onClick={() => setAdding(true)}>Add contact</Button>}
+        actions={<AddMenu />}
       />
 
       <div className="mb-4 flex flex-wrap items-center gap-3">

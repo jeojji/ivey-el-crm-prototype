@@ -1,4 +1,4 @@
-import { useState, type FormEvent } from 'react';
+import { useRef, useState, type FormEvent } from 'react';
 import { useData } from '../state/DataContext';
 import { useToast } from '../state/ToastContext';
 import {
@@ -15,7 +15,7 @@ import {
 import { isValidEmail, isValidIsoDate, isValidPhone, isValidUrl, type FieldErrors } from '../lib/validation';
 import { fullName } from '../lib/selectors';
 import type { Contact } from '../types';
-import { CheckboxGroupField, FormErrorSummary, FormSection, SelectField, TextAreaField, TextField, picklist } from './ui';
+import { CheckboxGroupField, CollapsibleSection, FormErrorSummary, FormSection, SelectField, TextAreaField, TextField, filledSummary, focusFirstInvalid, picklist } from './ui';
 import { Icon } from './Icon';
 import { ModalFooter } from './Modal';
 
@@ -51,6 +51,8 @@ export function ContactForm({ contact, defaultCompanyId, onSaved, onCancel }: {
   const [errors, setErrors] = useState<FieldErrors<Field>>({});
   const [attempted, setAttempted] = useState(false);
   const [saving, setSaving] = useState(false);
+  const formRef = useRef<HTMLFormElement>(null);
+  const [failedSaves, setFailedSaves] = useState(0);
 
   const oldCompanyId = contact?.companyId ?? null;
   const companyChanged = !!contact && (companyId || null) !== oldCompanyId;
@@ -88,7 +90,10 @@ export function ContactForm({ contact, defaultCompanyId, onSaved, onCancel }: {
     setAttempted(true);
     const found = validate();
     setErrors(found);
-    if (Object.keys(found).length) return;
+    if (Object.keys(found).length) {
+      setFailedSaves((n) => n + 1);
+      return focusFirstInvalid(formRef.current);
+    }
 
     setSaving(true);
     const input = {
@@ -133,10 +138,10 @@ export function ContactForm({ contact, defaultCompanyId, onSaved, onCancel }: {
   ];
 
   return (
-    <form onSubmit={handleSubmit} noValidate>
+    <form ref={formRef} onSubmit={handleSubmit} noValidate>
       <FormErrorSummary show={attempted && Object.keys(errors).length > 0} />
-      <div className="space-y-6">
-        <FormSection title="Basics">
+      <div className="space-y-4">
+        <FormSection title="Contact">
           <TextField label="First name" value={firstName} onChange={setFirstName} required error={errors.firstName} autoFocus />
           <TextField label="Last name" value={lastName} onChange={setLastName} required error={errors.lastName} />
           <SelectField label="Company" value={companyId} onChange={setCompanyId} options={companyOptions} />
@@ -174,15 +179,28 @@ export function ContactForm({ contact, defaultCompanyId, onSaved, onCancel }: {
           )}
         </FormSection>
 
-        <FormSection title="Contact details">
+        <FormSection title="How to reach them">
           <TextField label="Email" type="email" value={email} onChange={setEmail} placeholder="name@company.example" error={errors.email} />
-          <SelectField label="Preferred contact method" value={preferredContactMethod} onChange={setPreferredContactMethod} options={picklist(PREFERRED_CONTACT_METHODS)} />
           <TextField label="Work phone" type="tel" value={workPhone} onChange={setWorkPhone} placeholder="+1-519-555-0100" error={errors.workPhone} />
-          <TextField label="Mobile" type="tel" value={mobilePhone} onChange={setMobilePhone} placeholder="+1-519-555-0100" error={errors.mobilePhone} />
-          <TextField className="sm:col-span-2" label="LinkedIn URL" type="url" value={linkedInUrl} onChange={setLinkedInUrl} placeholder="https://www.linkedin.com/in/username" error={errors.linkedInUrl} />
+          <TextAreaField className="sm:col-span-2" label="Relationship notes" value={notes} onChange={setNotes} rows={3} placeholder="Relationship context: preferences, background, how you met" />
         </FormSection>
 
-        <FormSection title="Relationship">
+        <p className="pt-1 text-xs text-neutral-500">Optional. Fill these in now or later.</p>
+        <CollapsibleSection
+          title="More contact details"
+          summary={filledSummary([mobilePhone && 'mobile', preferredContactMethod && `prefers ${preferredContactMethod.toLowerCase()}`, linkedInUrl && 'LinkedIn'])}
+          revealKey={failedSaves} forceOpen={!!(errors.mobilePhone || errors.linkedInUrl)}
+        >
+          <TextField label="Mobile" type="tel" value={mobilePhone} onChange={setMobilePhone} placeholder="+1-519-555-0100" error={errors.mobilePhone} />
+          <SelectField label="Preferred contact method" value={preferredContactMethod} onChange={setPreferredContactMethod} options={picklist(PREFERRED_CONTACT_METHODS)} />
+          <TextField className="sm:col-span-2" label="LinkedIn URL" type="url" value={linkedInUrl} onChange={setLinkedInUrl} placeholder="https://www.linkedin.com/in/username" error={errors.linkedInUrl} />
+        </CollapsibleSection>
+
+        <CollapsibleSection
+          title="Relationship classification"
+          summary={filledSummary([priority && (priority === DO_NOT_CONTACT ? 'DO NOT CONTACT' : `${priority} priority`), source && `source: ${source}`, statuses.join(', '), roles.join(', ')])}
+          defaultOpen={priority === DO_NOT_CONTACT}
+        >
           <SelectField
             label="Contact priority"
             value={priority}
@@ -193,14 +211,22 @@ export function ContactForm({ contact, defaultCompanyId, onSaved, onCancel }: {
           <SelectField label="Source" value={source} onChange={setSource} options={picklist(SOURCES)} />
           <CheckboxGroupField className="sm:col-span-2" label="Contact status" options={PARTNER_STATUSES} value={statuses} onChange={setStatuses} hint="Select all that apply." />
           <CheckboxGroupField className="sm:col-span-2" label="Contact role" options={CONTACT_ROLES} value={roles} onChange={setRoles} />
-        </FormSection>
+        </CollapsibleSection>
 
-        <FormSection title="EL project participation">
+        <CollapsibleSection
+          title="EL project participation"
+          summary={filledSummary([projects.length > 0 && `${projects.length} project type${projects.length === 1 ? '' : 's'}`, lastProjectDate && 'last project date'])}
+          revealKey={failedSaves} forceOpen={!!errors.lastProjectDate}
+        >
           <CheckboxGroupField className="sm:col-span-2" label="Projects" options={PROJECT_TYPES} value={projects} onChange={setProjects} columns={3} />
           <TextField label="Last project participated" type="date" value={lastProjectDate} onChange={setLastProjectDate} error={errors.lastProjectDate} />
-        </FormSection>
+        </CollapsibleSection>
 
-        <FormSection title="Alumni">
+        <CollapsibleSection
+          title="Alumni"
+          summary={filledSummary([alumniPrograms.join(', '), graduationYear && `class of ${graduationYear}`])}
+          revealKey={failedSaves} forceOpen={!!errors.graduationYear}
+        >
           <CheckboxGroupField
             className="sm:col-span-2"
             label="Alumni programs"
@@ -212,11 +238,7 @@ export function ContactForm({ contact, defaultCompanyId, onSaved, onCancel }: {
             hint={`"${NOT_ALUMNUS}" clears the other choices.`}
           />
           <TextField label="Graduation year" value={graduationYear} onChange={setGraduationYear} placeholder="e.g. 2015" error={errors.graduationYear} hint="If alumni." />
-        </FormSection>
-
-        <FormSection title="Notes">
-          <TextAreaField className="sm:col-span-2" label="Relationship notes" value={notes} onChange={setNotes} rows={4} placeholder="Relationship context: preferences, background, how you met" />
-        </FormSection>
+        </CollapsibleSection>
       </div>
       <ModalFooter onCancel={onCancel} submitLabel={contact ? 'Save changes' : 'Add contact'} saving={saving} />
     </form>

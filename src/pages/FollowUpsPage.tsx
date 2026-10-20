@@ -8,6 +8,7 @@ import { Button, Card, EmptyState, PageHeader, SearchInput, filterSelectClass } 
 import { Modal } from '../components/Modal';
 import { TaskForm } from '../components/TaskForm';
 import { FollowUpList } from '../components/FollowUpList';
+import { AddMenu } from '../components/AddMenu';
 
 const VIEWS = [
   { id: 'open', label: 'Open' },
@@ -95,7 +96,7 @@ export function FollowUpsPage() {
       <PageHeader
         title="Follow-ups"
         description="Next steps with partners. Tick a follow-up to complete it, or click its title to edit."
-        actions={<Button icon="plus" onClick={() => setAdding(true)}>Add follow-up</Button>}
+        actions={<AddMenu companyId={companyId || undefined} />}
       />
 
       <div className="mb-4 flex flex-wrap items-center gap-2" role="group" aria-label="Show follow-ups">

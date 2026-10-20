@@ -9,10 +9,11 @@ import { APPLICATION_STAGES, STAGE_MEANINGS } from '../lib/options';
 import { Button, Card, EmptyState, PageHeader } from '../components/ui';
 import { Icon } from '../components/Icon';
 import { ConfirmDialog, Modal } from '../components/Modal';
+import { AddMenu } from '../components/AddMenu';
+import { MoreActions } from '../components/Menu';
+import { LatestBriefCard, latestBriefFor } from '../components/LatestBrief';
 import { ApplicationForm, DeadlineText, StageBadge, StageSelect } from '../components/applications';
-import { ActivityForm } from '../components/ActivityForm';
 import { ActivityTimeline } from '../components/ActivityTimeline';
-import { TaskForm } from '../components/TaskForm';
 import { FollowUpList } from '../components/FollowUpList';
 import { FeedbackForm, FeedbackList } from '../components/feedback';
 import { LinkedImpact, plural } from '../components/LinkedImpact';
@@ -60,9 +61,9 @@ function StageTrack({ stage }: { stage: string }) {
 export function ApplicationDetailPage() {
   const { id = '' } = useParams();
   const navigate = useNavigate();
-  const { applicationById, companyById, contactById, activities, tasks, feedback, updateApplication, deleteApplication } = useData();
+  const { applicationById, companyById, contactById, activities, tasks, feedback, briefs, updateApplication, deleteApplication } = useData();
   const { notify } = useToast();
-  const [modal, setModal] = useState<'edit' | 'activity' | 'task' | 'feedback' | 'delete' | null>(null);
+  const [modal, setModal] = useState<'edit' | 'feedback' | 'delete' | null>(null);
   const close = () => setModal(null);
 
   const app = applicationById.get(id);
@@ -77,6 +78,7 @@ export function ApplicationDetailPage() {
 
   const company = companyById.get(app.companyId);
   const contact = app.primaryContactId ? contactById.get(app.primaryContactId) : undefined;
+  const prepLink = `/prep?application=${id}&company=${app.companyId}${app.primaryContactId ? `&contact=${app.primaryContactId}` : ''}`;
   const history = activities.filter((a) => a.applicationId === id);
   const openTasks = tasks.filter((t) => t.applicationId === id && t.status === 'open').sort(byDueAsc);
   const doneTasks = tasks.filter((t) => t.applicationId === id && t.status === 'done');
@@ -118,10 +120,10 @@ export function ApplicationDetailPage() {
         }
         actions={
           <>
+            <Link to={prepLink} className="inline-flex items-center gap-2 rounded-md border border-neutral-300 bg-white px-3.5 py-2 text-sm font-medium text-neutral-800 shadow-xs hover:bg-neutral-50">Prepare for conversation</Link>
             <Button variant="secondary" icon="pencil" onClick={() => setModal('edit')}>Edit</Button>
-            <Button variant="secondary" icon="trash" onClick={() => setModal('delete')}>Delete</Button>
-            <Link to={`/prep?application=${id}&company=${app.companyId}${app.primaryContactId ? `&contact=${app.primaryContactId}` : ''}`} className="inline-flex items-center gap-2 rounded-md border border-neutral-300 bg-white px-3.5 py-2 text-sm font-medium text-neutral-800 shadow-xs hover:bg-neutral-50">Prepare for conversation</Link>
-            <Button icon="plus" onClick={() => setModal('activity')}>Log activity</Button>
+            <MoreActions items={[{ label: 'Delete application…', icon: 'trash', danger: true, onSelect: () => setModal('delete') }]} />
+            <AddMenu applicationId={id} />
           </>
         }
       />
@@ -143,6 +145,8 @@ export function ApplicationDetailPage() {
 
       <div className="grid grid-cols-1 gap-6 xl:grid-cols-3">
         <div className="space-y-6 xl:col-span-2">
+          <LatestBriefCard brief={latestBriefFor(briefs, (b) => b.applicationId === id)} prepLink={prepLink} />
+
           <Card title="Scope / description">
             {app.scope ? <p className="text-sm whitespace-pre-line text-neutral-700">{app.scope}</p> : <p className="text-sm text-neutral-600">No scope recorded yet.</p>}
           </Card>
@@ -154,12 +158,12 @@ export function ApplicationDetailPage() {
             <FeedbackList items={feedback.filter((f) => f.applicationId === id)} />
           </Card>
 
-          <Card title={`Activity about this application (${history.length})`} action={<Button size="sm" variant="secondary" icon="plus" onClick={() => setModal('activity')}>Log activity</Button>}>
+          <Card title={`History (${history.length})`}>
             <ActivityTimeline
               activities={history}
               hideCompany
               hideApplication
-              emptyState={<EmptyState compact icon="activity" title="No activity linked yet" message="Log an email, call, meeting or note about this opportunity, or link an existing activity by editing it." />}
+              emptyState={<EmptyState compact icon="activity" title="No activity linked yet" message="Use Add to record an email, call, meeting or note about this opportunity, or link an existing one by editing it." />}
             />
           </Card>
         </div>
@@ -176,7 +180,7 @@ export function ApplicationDetailPage() {
             </dl>
           </Card>
 
-          <Card title={`Open follow-ups (${openTasks.length})`} action={<Button size="sm" variant="secondary" icon="plus" onClick={() => setModal('task')}>Add follow-up</Button>}>
+          <Card title={`Open follow-ups (${openTasks.length})`}>
             {openTasks.length ? <FollowUpList tasks={openTasks} showCompany={false} showApplication={false} /> : <p className="text-sm text-neutral-600">No open follow-ups for this application.</p>}
             {doneTasks.length > 0 && <p className="mt-4 text-xs text-neutral-500">{doneTasks.length} completed follow-up{doneTasks.length === 1 ? '' : 's'} not shown.</p>}
           </Card>
@@ -201,12 +205,6 @@ export function ApplicationDetailPage() {
 
       <Modal open={modal === 'edit'} onClose={close} title={`Edit “${app.title}”`} size="xl">
         <ApplicationForm application={app} onSaved={close} onCancel={close} />
-      </Modal>
-      <Modal open={modal === 'activity'} onClose={close} title="Log activity" description={app.title} size="lg">
-        <ActivityForm defaultApplicationId={id} onSaved={close} onCancel={close} />
-      </Modal>
-      <Modal open={modal === 'task'} onClose={close} title="Add follow-up" description={app.title} size="lg">
-        <TaskForm defaultApplicationId={id} onSaved={close} onCancel={close} />
       </Modal>
       <Modal open={modal === 'feedback'} onClose={close} title="Record feedback" description={`${app.title}${company ? ` · ${company.name}` : ''}`} size="lg">
         <FeedbackForm applicationId={id} companyId={app.companyId} applicationLabel={`${app.title}${termLabel(app) ? ` (${termLabel(app)})` : ''}`} onDone={close} />
