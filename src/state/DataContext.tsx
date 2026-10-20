@@ -1,6 +1,8 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { createSampleDatabase } from '../data/seed';
 import { emptyDatabase, type DataRepository } from '../data/repository';
+import type { MigrationPreview } from '../data/migrations';
+import { downloadTextFile, timestampForFilename } from '../lib/download';
 import type {
   Activity,
   ActivityInput,
@@ -13,11 +15,20 @@ import type {
   TaskInput,
 } from '../types';
 
-type LoadStatus = 'loading' | 'ready' | 'error';
+type LoadStatus = 'loading' | 'needs-upgrade' | 'ready' | 'error';
+
+export interface ContactCompanyChangeOptions {
+  /** Move the contact's OPEN follow-ups at their old company to the new one. */
+  moveOpenTasks: boolean;
+}
 
 interface DataContextValue extends Database {
   status: LoadStatus;
   loadError: string | null;
+  pendingMigration: MigrationPreview | null;
+  runMigration(): Promise<void>;
+  /** Saves a JSON backup file. Returns false if there is nothing to back up. */
+  downloadBackup(kind: 'current' | 'pre-upgrade'): Promise<boolean>;
   companyById: Map<string, Company>;
   contactById: Map<string, Contact>;
 
@@ -26,7 +37,7 @@ interface DataContextValue extends Database {
   deleteCompany(id: string): Promise<void>;
 
   createContact(input: ContactInput): Promise<Contact>;
-  updateContact(id: string, changes: Partial<ContactInput>): Promise<Contact>;
+  updateContact(id: string, changes: Partial<ContactInput>, options?: ContactCompanyChangeOptions): Promise<Contact>;
   deleteContact(id: string): Promise<void>;
 
   createActivity(input: ActivityInput): Promise<Activity>;
@@ -53,18 +64,22 @@ export function DataProvider({ repository, children }: { repository: DataReposit
   const [db, setDb] = useState<Database>(emptyDatabase);
   const [status, setStatus] = useState<LoadStatus>('loading');
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [pendingMigration, setPendingMigration] = useState<MigrationPreview | null>(null);
 
   useEffect(() => {
-    repository
-      .loadAll()
-      .then((data) => {
-        setDb(data);
-        setStatus('ready');
-      })
-      .catch((err: unknown) => {
-        setLoadError(err instanceof Error ? err.message : 'Could not load data.');
-        setStatus('error');
-      });
+    (async () => {
+      const pending = await repository.getPendingMigration();
+      if (pending) {
+        setPendingMigration(pending);
+        setStatus('needs-upgrade');
+        return;
+      }
+      setDb(await repository.loadAll());
+      setStatus('ready');
+    })().catch((err: unknown) => {
+      setLoadError(err instanceof Error ? err.message : 'Could not load data.');
+      setStatus('error');
+    });
   }, [repository]);
 
   const refresh = useCallback(async () => {
@@ -79,7 +94,22 @@ export function DataProvider({ repository, children }: { repository: DataReposit
       ...db,
       status,
       loadError,
+      pendingMigration,
       companyById,
+
+      async runMigration() {
+        await repository.runMigration();
+        setDb(await repository.loadAll());
+        setPendingMigration(null);
+        setStatus('ready');
+      },
+      async downloadBackup(kind) {
+        const json = await repository.getBackup(kind);
+        if (!json) return false;
+        const label = kind === 'pre-upgrade' ? 'original-before-upgrade' : 'current';
+        downloadTextFile(`el-workspace-backup-${label}-${timestampForFilename()}.json`, json);
+        return true;
+      },
       contactById,
 
       async createCompany(input) {
@@ -109,14 +139,15 @@ export function DataProvider({ repository, children }: { repository: DataReposit
         await refresh();
         return contact;
       },
-      async updateContact(id, changes) {
+      async updateContact(id, changes, options) {
+        const before = db.contacts.find((c) => c.id === id);
         const contact = await repository.update('contacts', id, changes);
-        // Keep the contact's activities and follow-ups attached to their (new) company.
-        if (changes.companyId !== undefined) {
-          for (const a of db.activities.filter((a) => a.contactId === id)) {
-            await repository.update('activities', a.id, { companyId: changes.companyId });
-          }
-          for (const t of db.tasks.filter((t) => t.contactId === id)) {
+        // Relationship history belongs to the company it happened with: activities and completed
+        // follow-ups never move. Only open follow-ups move, and only when the user asks.
+        const oldCompanyId = before?.companyId ?? null;
+        const companyChanged = changes.companyId !== undefined && changes.companyId !== oldCompanyId;
+        if (companyChanged && options?.moveOpenTasks) {
+          for (const t of db.tasks.filter((t) => t.contactId === id && t.status === 'open' && t.companyId === oldCompanyId)) {
             await repository.update('tasks', t.id, { companyId: changes.companyId });
           }
         }
@@ -182,7 +213,7 @@ export function DataProvider({ repository, children }: { repository: DataReposit
         await refresh();
       },
     };
-  }, [db, status, loadError, repository, refresh]);
+  }, [db, status, loadError, pendingMigration, repository, refresh]);
 
   return <DataContext.Provider value={value}>{children}</DataContext.Provider>;
 }

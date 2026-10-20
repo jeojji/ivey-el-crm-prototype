@@ -1,7 +1,7 @@
 import { useId, type ButtonHTMLAttributes, type ReactNode } from 'react';
 import { Link } from 'react-router-dom';
 import { Icon, type IconName } from './Icon';
-import type { RelationshipStatus } from '../types';
+import { DO_NOT_CONTACT, PARTNER_STATUSES, shortLabel } from '../lib/options';
 import { initials } from '../lib/selectors';
 
 /* ---------- Buttons ---------- */
@@ -112,15 +112,66 @@ export function Avatar({ name, size = 'md' }: { name: string; size?: 'sm' | 'md'
 
 /* ---------- Badges ---------- */
 
-const statusTone: Record<RelationshipStatus, string> = {
-  'Active partner': 'bg-ivey-50 text-ivey-800 ring-ivey-200',
+const statusTone: Record<string, string> = {
+  'Active Partner': 'bg-ivey-50 text-ivey-800 ring-ivey-200',
   Prospect: 'bg-sky-50 text-sky-800 ring-sky-200',
-  'On hold': 'bg-amber-50 text-amber-800 ring-amber-200',
-  'Past partner': 'bg-neutral-100 text-neutral-700 ring-neutral-200',
+  'Outreach in Progress': 'bg-violet-50 text-violet-800 ring-violet-200',
+  'Past Partner': 'bg-neutral-100 text-neutral-700 ring-neutral-200',
 };
+const reviewTone = 'bg-amber-50 text-amber-900 ring-amber-300';
 
-export function StatusBadge({ status }: { status: RelationshipStatus }) {
-  return <Badge className={statusTone[status]}>{status}</Badge>;
+/** Partner/contact statuses. A value outside Lauren's list is shown in amber with a review hint. */
+export function StatusBadges({ statuses, max }: { statuses: string[]; max?: number }) {
+  if (!statuses.length) return <span className="text-neutral-500">—</span>;
+  const shown = max ? statuses.slice(0, max) : statuses;
+  return (
+    <span className="inline-flex flex-wrap gap-1">
+      {shown.map((s) => {
+        const known = (PARTNER_STATUSES as readonly string[]).includes(s);
+        return (
+          <Badge key={s} className={known ? statusTone[s] : reviewTone}>
+            {!known && <Icon name="alert" className="h-3 w-3" />}
+            {s}
+            {!known && <span className="sr-only"> (needs review)</span>}
+          </Badge>
+        );
+      })}
+      {max && statuses.length > max && <Badge>+{statuses.length - max}</Badge>}
+    </span>
+  );
+}
+
+export function PriorityBadge({ priority }: { priority: string }) {
+  if (!priority) return <span className="text-neutral-500">—</span>;
+  const tone =
+    priority === 'High'
+      ? 'bg-ivey-700 text-white ring-ivey-700'
+      : priority === 'Medium'
+        ? 'bg-ivey-50 text-ivey-800 ring-ivey-200'
+        : priority === 'Low'
+          ? 'bg-neutral-100 text-neutral-700 ring-neutral-200'
+          : priority === DO_NOT_CONTACT
+            ? 'bg-red-50 text-red-800 ring-red-300'
+            : reviewTone;
+  return <Badge className={tone}>{priority === DO_NOT_CONTACT && <Icon name="alert" className="h-3 w-3" />}{priority}</Badge>;
+}
+
+/** Neutral chips for multi-select values such as project types or roles. */
+export function Chips({ values, known, empty = 'Not recorded' }: { values: string[]; known?: readonly string[]; empty?: string }) {
+  if (!values.length) return <span className="text-sm text-neutral-500">{empty}</span>;
+  return (
+    <span className="flex flex-wrap gap-1.5">
+      {values.map((v) => {
+        const flagged = known && !known.includes(v);
+        return (
+          <Badge key={v} className={flagged ? reviewTone : 'bg-white text-neutral-800 ring-neutral-300'}>
+            {flagged && <Icon name="alert" className="h-3 w-3" />}
+            <span title={v}>{shortLabel(v)}</span>
+          </Badge>
+        );
+      })}
+    </span>
+  );
 }
 
 export function Badge({ children, className = 'bg-neutral-100 text-neutral-700 ring-neutral-200' }: { children: ReactNode; className?: string }) {
@@ -218,6 +269,9 @@ export function TextAreaField({ rows = 4, ...props }: BaseFieldProps & { rows?: 
 
 export function SelectField({ options, ...props }: BaseFieldProps & { options: { value: string; label: string }[] }) {
   const id = useId();
+  if (props.value && !options.some((o) => o.value === props.value)) {
+    options = [...options, { value: props.value, label: `${props.value} (not in list, needs review)` }];
+  }
   return (
     <FieldShell id={id} {...props}>
       <select
@@ -264,6 +318,107 @@ export function FormErrorSummary({ show }: { show: boolean }) {
     <div role="alert" className="mb-5 flex items-start gap-2 rounded-md border border-red-200 bg-red-50 px-3 py-2.5 text-sm text-red-900">
       <Icon name="alert" className="mt-0.5 h-4 w-4 shrink-0 text-red-700" />
       Please fix the highlighted fields before saving.
+    </div>
+  );
+}
+
+/** Picklist with Lauren's options plus a blank "Not set" choice. */
+export function picklist(values: readonly string[], blank = 'Not set'): { value: string; label: string }[] {
+  return [{ value: '', label: blank }, ...values.map((v) => ({ value: v, label: v }))];
+}
+
+/**
+ * Multi-select as a group of checkboxes. Values that aren't in `options` (legacy/imported)
+ * are listed too, ticked and flagged, so they're preserved unless the user unticks them.
+ * `exclusive` is an option that clears the others when chosen (e.g. "Not an Ivey Alumnus").
+ */
+export function CheckboxGroupField({ label, options, value, onChange, columns = 2, error, hint, exclusive, className = '' }: {
+  label: string;
+  options: readonly string[];
+  value: string[];
+  onChange: (next: string[]) => void;
+  columns?: 1 | 2 | 3;
+  error?: string;
+  hint?: ReactNode;
+  exclusive?: string;
+  className?: string;
+}) {
+  const id = useId();
+  const legacy = value.filter((v) => !options.includes(v));
+  const all = [...options, ...legacy];
+
+  function toggle(option: string, checked: boolean) {
+    if (!checked) return onChange(value.filter((v) => v !== option));
+    if (exclusive && option === exclusive) return onChange([option]);
+    // Keep the user's picks in the official option order.
+    const next = [...value.filter((v) => v !== exclusive), option];
+    onChange(all.filter((o) => next.includes(o)));
+  }
+
+  const cols = columns === 3 ? 'sm:grid-cols-3' : columns === 2 ? 'sm:grid-cols-2' : '';
+  return (
+    <fieldset className={className} aria-describedby={error || hint ? `${id}-msg` : undefined}>
+      <legend className="mb-1.5 flex w-full items-baseline justify-between text-sm font-medium text-neutral-800">
+        {label}
+        {value.length > 0 && <span className="text-xs font-normal text-neutral-500">{value.length} selected</span>}
+      </legend>
+      <div className={`grid grid-cols-1 gap-x-4 gap-y-1 rounded-md border px-3 py-2.5 ${cols} ${error ? 'border-red-600' : 'border-neutral-300'}`}>
+        {all.map((option) => {
+          const isLegacy = legacy.includes(option);
+          return (
+            <label key={option} className="flex cursor-pointer items-start gap-2 py-0.5 text-sm text-neutral-800">
+              <input
+                type="checkbox"
+                checked={value.includes(option)}
+                onChange={(e) => toggle(option, e.target.checked)}
+                className="mt-0.5 h-4 w-4 shrink-0 rounded border-neutral-300 accent-ivey-700"
+              />
+              <span className={isLegacy ? 'text-amber-900' : ''}>
+                {option}
+                {isLegacy && <span className="ml-1 text-xs font-medium">(not in list, needs review)</span>}
+              </span>
+            </label>
+          );
+        })}
+      </div>
+      {error ? (
+        <p id={`${id}-msg`} className="mt-1.5 flex items-center gap-1 text-xs font-medium text-red-700">
+          <Icon name="alert" className="h-3.5 w-3.5" />
+          {error}
+        </p>
+      ) : hint ? (
+        <p id={`${id}-msg`} className="mt-1.5 text-xs text-neutral-500">{hint}</p>
+      ) : null}
+    </fieldset>
+  );
+}
+
+/** A titled group of fields inside a long form. */
+export function FormSection({ title, description, children }: { title: string; description?: string; children: ReactNode }) {
+  return (
+    <section className="border-t border-neutral-100 pt-5 first:border-t-0 first:pt-0">
+      <h3 className="text-sm font-semibold text-neutral-950">{title}</h3>
+      {description && <p className="mt-0.5 text-xs text-neutral-500">{description}</p>}
+      <div className="mt-4 grid grid-cols-1 gap-x-4 gap-y-5 sm:grid-cols-2">{children}</div>
+    </section>
+  );
+}
+
+/** Amber notice listing values that aren't in Lauren's option lists. */
+export function ReviewNotice({ issues }: { issues: { field: string; value: string }[] }) {
+  if (!issues.length) return null;
+  return (
+    <div role="note" className="mb-6 flex gap-3 rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-950">
+      <Icon name="alert" className="mt-0.5 h-4 w-4 shrink-0 text-amber-700" />
+      <div>
+        <p className="font-semibold">Some values need review</p>
+        <p className="mt-0.5">These aren't in Lauren's option lists. They've been kept as they were. Edit the record to choose a replacement, or leave them as they are.</p>
+        <ul className="mt-1.5 list-disc pl-5">
+          {issues.map((i) => (
+            <li key={i.field + i.value}>{i.field}: <strong className="font-semibold">“{i.value}”</strong></li>
+          ))}
+        </ul>
+      </div>
     </div>
   );
 }

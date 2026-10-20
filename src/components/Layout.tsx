@@ -1,6 +1,7 @@
 import { NavLink, Outlet } from 'react-router-dom';
 import { Icon, type IconName } from './Icon';
 import { useData } from '../state/DataContext';
+import { UpgradeScreen } from './UpgradeScreen';
 import { todayDateString } from '../lib/dates';
 import { isOverdue } from '../lib/selectors';
 
@@ -80,6 +81,7 @@ export function Layout() {
             <p className="mt-1">{loadError}</p>
           </div>
         )}
+        {status === 'needs-upgrade' && <UpgradeScreen />}
         {status === 'ready' && <Outlet />}
       </main>
     </div>

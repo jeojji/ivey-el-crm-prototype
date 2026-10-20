@@ -7,7 +7,7 @@ import { ConfirmDialog } from '../components/Modal';
 import { Icon } from '../components/Icon';
 
 export function AboutPage() {
-  const { companies, contacts, activities, tasks, resetToSampleData, clearAllData } = useData();
+  const { companies, contacts, activities, tasks, resetToSampleData, clearAllData, downloadBackup } = useData();
   const { notify } = useToast();
   const [confirm, setConfirm] = useState<'reset' | 'clear' | null>(null);
 
@@ -23,6 +23,15 @@ export function AboutPage() {
       }
     } catch (err) {
       notify(err instanceof Error ? err.message : 'Something went wrong.', 'error');
+    }
+  }
+
+  async function backup(kind: 'current' | 'pre-upgrade') {
+    try {
+      const saved = await downloadBackup(kind);
+      notify(saved ? 'Backup saved to your Downloads folder.' : 'There is no data from the previous version in this browser.', saved ? 'success' : 'info');
+    } catch (err) {
+      notify(err instanceof Error ? err.message : 'Could not create the backup.', 'error');
     }
   }
 
@@ -83,16 +92,17 @@ export function AboutPage() {
             ))}
           </dl>
           <div className="flex flex-wrap gap-3">
+            <Button variant="secondary" icon="database" onClick={() => backup('current')}>Download backup (.json)</Button>
+            <Button variant="secondary" onClick={() => backup('pre-upgrade')}>Download pre-upgrade original</Button>
             <Button variant="secondary" onClick={() => setConfirm('reset')}>Reset to sample data</Button>
             <Button variant="secondary" onClick={() => setConfirm('clear')}>Start with an empty workspace</Button>
           </div>
-          <p className="mt-3 text-xs text-neutral-500">Useful for demos and testing. Both replace everything currently saved in this browser.</p>
+          <p className="mt-3 text-xs text-neutral-500">Backups are saved to your Downloads folder. The pre-upgrade original only exists if this browser used the previous version. Reset and empty-workspace both replace everything currently saved in this browser, so download a backup first.</p>
         </Card>
 
         <Card title="Coming in the next builds" className="lg:col-span-2">
           <ul className="list-disc space-y-1.5 pl-5 text-sm text-neutral-700">
-            <li>CSV import (with preview and validation) and CSV export</li>
-            <li>Publishing the prototype to GitHub Pages</li>
+            <li>CSV import (with preview and validation, accepting Lauren's template column names) and CSV export</li>
           </ul>
         </Card>
       </div>

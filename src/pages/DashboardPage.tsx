@@ -42,7 +42,7 @@ export function DashboardPage() {
     .sort(byOccurredAsc)
     .slice(0, 5);
   const recent = activities.filter((a) => !isFuture(a, now)).sort(byOccurredDesc).slice(0, 6);
-  const activePartners = companies.filter((c) => c.status === 'Active partner').length;
+  const activePartners = companies.filter((c) => c.statuses.includes('Active Partner')).length;
   const last30 = activities.filter((a) => !isFuture(a, now) && now - new Date(a.occurredAt).getTime() <= 30 * 86_400_000).length;
 
   return (

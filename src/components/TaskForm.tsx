@@ -68,7 +68,7 @@ export function TaskForm({ task, defaultCompanyId, defaultContactId, onSaved, on
 
   function validate(): FieldErrors<Field> {
     const next: FieldErrors<Field> = {};
-    if (!title.trim()) next.title = 'Describe what needs to happen, e.g. "Send proposal to Priya".';
+    if (!title.trim()) next.title = 'Describe what needs to happen, e.g. "Send proposal to Tamsin".';
     if (!isValidDateString(dueDate)) next.dueDate = 'Choose a due date.';
     return next;
   }

@@ -2,3 +2,8 @@ node_modules
 dist
 .DS_Store
 *.log
+
+# Private reference material (real contact details). Never commit.
+reference/
+*.docx
+SF_Import_*.csv

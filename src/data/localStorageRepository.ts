@@ -1,20 +1,42 @@
 import { createId } from '../lib/id';
-import type { CollectionName, Database, EntityInput, EntityMap } from '../types';
+import { SCHEMA_VERSION, type CollectionName, type Database, type EntityInput, type EntityMap } from '../types';
+import { isV1Database, migrateV1, previewV1Migration, type MigrationPreview } from './migrations';
 import type { DataRepository } from './repository';
 import { createSampleDatabase } from './seed';
 
-export const STORAGE_KEY = 'el-relationship-workspace:v1';
+export const STORAGE_KEY = 'el-relationship-workspace:v2';
+/** Schema-1 data. Never written or deleted by this version, so it doubles as the pre-upgrade backup. */
+export const LEGACY_STORAGE_KEY = 'el-relationship-workspace:v1';
 
 function isDatabase(value: unknown): value is Database {
   if (!value || typeof value !== 'object') return false;
   const db = value as Record<string, unknown>;
   return (
-    db.schemaVersion === 1 &&
+    db.schemaVersion === SCHEMA_VERSION &&
     Array.isArray(db.companies) &&
     Array.isArray(db.contacts) &&
     Array.isArray(db.activities) &&
     Array.isArray(db.tasks)
   );
+}
+
+function getItem(key: string): string | null {
+  try {
+    return window.localStorage.getItem(key);
+  } catch {
+    throw new Error(
+      'This browser is blocking local storage, so the prototype cannot save data. Try a normal (non-private) window.',
+    );
+  }
+}
+
+function parse(raw: string | null): unknown {
+  if (!raw) return null;
+  try {
+    return JSON.parse(raw);
+  } catch {
+    return null;
+  }
 }
 
 /**
@@ -24,28 +46,39 @@ function isDatabase(value: unknown): value is Database {
 export class LocalStorageRepository implements DataRepository {
   private cache: Database | null = null;
 
+  private legacyData() {
+    if (getItem(STORAGE_KEY)) return null;
+    const parsed = parse(getItem(LEGACY_STORAGE_KEY));
+    return isV1Database(parsed) ? parsed : null;
+  }
+
+  async getPendingMigration(): Promise<MigrationPreview | null> {
+    const legacy = this.legacyData();
+    return legacy ? previewV1Migration(legacy) : null;
+  }
+
+  async runMigration(): Promise<void> {
+    const legacy = this.legacyData();
+    if (!legacy) return;
+    this.write(migrateV1(legacy));
+  }
+
+  async getBackup(kind: 'current' | 'pre-upgrade'): Promise<string | null> {
+    if (kind === 'pre-upgrade') return getItem(LEGACY_STORAGE_KEY);
+    return JSON.stringify(this.read(), null, 2);
+  }
+
   private read(): Database {
     if (this.cache) return this.cache;
+    if (this.legacyData()) throw new Error('Saved data needs upgrading before it can be opened.');
 
-    let raw: string | null;
-    try {
-      raw = window.localStorage.getItem(STORAGE_KEY);
-    } catch {
-      throw new Error(
-        'This browser is blocking local storage, so the prototype cannot save data. Try a normal (non-private) window.',
-      );
+    const raw = getItem(STORAGE_KEY);
+    const parsed = parse(raw);
+    if (isDatabase(parsed)) {
+      this.cache = parsed;
+      return parsed;
     }
-
     if (raw) {
-      try {
-        const parsed: unknown = JSON.parse(raw);
-        if (isDatabase(parsed)) {
-          this.cache = parsed;
-          return parsed;
-        }
-      } catch {
-        // fall through to reseed
-      }
       // Keep unreadable data instead of silently discarding it.
       try {
         window.localStorage.setItem(`${STORAGE_KEY}:unreadable-backup`, raw);

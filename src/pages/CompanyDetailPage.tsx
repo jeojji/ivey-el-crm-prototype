@@ -1,11 +1,13 @@
-import { useState } from 'react';
+import { useState, type ReactNode } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { useData } from '../state/DataContext';
 import { useToast } from '../state/ToastContext';
 import { formatDate } from '../lib/dates';
 import { byDueAsc, fullName } from '../lib/selectors';
-import { Avatar, Button, Card, EmptyState, PageHeader, StatusBadge, inputClass } from '../components/ui';
-import { Icon } from '../components/Icon';
+import { Avatar, Button, Card, Chips, EmptyState, PageHeader, PriorityBadge, ReviewNotice, StatusBadges, inputClass } from '../components/ui';
+import { PROJECT_TYPES, shortLabel } from '../lib/options';
+import { companyReviewIssues, formatAddress } from '../lib/review';
+import { Icon, type IconName } from '../components/Icon';
 import { ConfirmDialog, Modal } from '../components/Modal';
 import { CompanyForm } from '../components/CompanyForm';
 import { ContactForm } from '../components/ContactForm';
@@ -13,6 +15,20 @@ import { ActivityForm } from '../components/ActivityForm';
 import { ActivityTimeline } from '../components/ActivityTimeline';
 import { FollowUpList } from '../components/FollowUpList';
 import { TaskForm } from '../components/TaskForm';
+
+function Detail({ label, icon, children }: { label: string; icon?: IconName; children: ReactNode }) {
+  return (
+    <div className="flex gap-3 py-2.5">
+      {icon && <Icon name={icon} className="mt-0.5 h-4 w-4 shrink-0 text-neutral-400" />}
+      <div className="min-w-0 flex-1">
+        <dt className="text-xs text-neutral-500">{label}</dt>
+        <dd className="mt-0.5 text-sm break-words whitespace-pre-line text-neutral-900">{children}</dd>
+      </div>
+    </div>
+  );
+}
+
+const notRecorded = <span className="text-neutral-500">Not recorded</span>;
 
 export function CompanyDetailPage() {
   const { id = '' } = useParams();
@@ -65,12 +81,19 @@ export function CompanyDetailPage() {
     <>
       <PageHeader
         back={{ to: '/companies', label: 'Companies' }}
-        title={<span className="flex flex-wrap items-center gap-3">{company.name}<StatusBadge status={company.status} /></span>}
+        title={
+          <span className="flex flex-wrap items-center gap-3">
+            {company.name}
+            <StatusBadges statuses={company.statuses} />
+            {company.priority && <PriorityBadge priority={company.priority} />}
+          </span>
+        }
         description={
           <span className="flex flex-wrap gap-x-4 gap-y-1">
-            {company.industry && <span>{company.industry}</span>}
-            {company.city && <span className="inline-flex items-center gap-1"><Icon name="mapPin" className="h-3.5 w-3.5" />{company.city}</span>}
+            {company.industry && <span title={company.industry}>{shortLabel(company.industry)}</span>}
+            {company.address.city && <span className="inline-flex items-center gap-1"><Icon name="mapPin" className="h-3.5 w-3.5" />{company.address.city}</span>}
             {company.website && <span className="inline-flex items-center gap-1"><Icon name="globe" className="h-3.5 w-3.5" />{company.website}</span>}
+            {company.phone && <span className="inline-flex items-center gap-1"><Icon name="phone" className="h-3.5 w-3.5" />{company.phone}</span>}
           </span>
         }
         actions={
@@ -81,6 +104,8 @@ export function CompanyDetailPage() {
           </>
         }
       />
+
+      <ReviewNotice issues={companyReviewIssues(company)} />
 
       <div className="grid grid-cols-1 gap-6 xl:grid-cols-3">
         <div className="space-y-6 xl:col-span-2">
@@ -103,6 +128,15 @@ export function CompanyDetailPage() {
         </div>
 
         <div className="space-y-6">
+          <Card title="Partnership" action={<Button size="sm" variant="ghost" icon="pencil" onClick={() => setModal('edit')}>Edit</Button>}>
+            <dl className="-my-2.5 divide-y divide-neutral-100">
+              <Detail label="Partnership priority">{company.priority ? <PriorityBadge priority={company.priority} /> : notRecorded}</Detail>
+              <Detail label="Partner status">{company.statuses.length ? <StatusBadges statuses={company.statuses} /> : notRecorded}</Detail>
+              <Detail label="Project participation"><Chips values={company.projectParticipation} known={PROJECT_TYPES} /></Detail>
+              <Detail label="Last project participated">{company.lastProjectDate ? formatDate(company.lastProjectDate) : notRecorded}</Detail>
+            </dl>
+          </Card>
+
           <Card title={`Contacts (${people.length})`} action={<Button size="sm" variant="secondary" icon="plus" onClick={() => setModal('contact')}>Add contact</Button>}>
             {people.length === 0 ? (
               <EmptyState compact icon="users" title="No contacts yet" message="Add the people you work with at this organization." />
@@ -154,14 +188,29 @@ export function CompanyDetailPage() {
             )}
           </Card>
 
+          <Card title="Company details">
+            <dl className="-my-2.5 divide-y divide-neutral-100">
+              <Detail label="Industry" icon="building">{company.industry || notRecorded}</Detail>
+              <Detail label="Company phone" icon="phone">{company.phone || notRecorded}</Detail>
+              <Detail label="Website" icon="globe">{company.website || notRecorded}</Detail>
+              <Detail label="Address" icon="mapPin">{formatAddress(company.address, true) || notRecorded}</Detail>
+            </dl>
+            {company.legacy && Object.keys(company.legacy).length > 0 && (
+              <p className="mt-4 text-xs text-neutral-500">
+                Before the data upgrade:{' '}
+                {Object.entries(company.legacy).map(([k, v]) => `${k === 'status' ? 'status' : k} “${v}”`).join(', ')}.
+              </p>
+            )}
+          </Card>
+
           <p className="px-1 text-xs text-neutral-500">Added {formatDate(company.createdAt)} · Last updated {formatDate(company.updatedAt)}</p>
         </div>
       </div>
 
-      <Modal open={modal === 'edit'} onClose={close} title={`Edit ${company.name}`} size="lg">
+      <Modal open={modal === 'edit'} onClose={close} title={`Edit ${company.name}`} size="xl">
         <CompanyForm company={company} onSaved={close} onCancel={close} />
       </Modal>
-      <Modal open={modal === 'contact'} onClose={close} title="Add contact" description={`Linked to ${company.name}`} size="lg">
+      <Modal open={modal === 'contact'} onClose={close} title="Add contact" description={`Linked to ${company.name}`} size="xl">
         <ContactForm defaultCompanyId={id} onSaved={close} onCancel={close} />
       </Modal>
       <Modal open={modal === 'activity'} onClose={close} title="Log activity" description={company.name} size="lg">

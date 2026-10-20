@@ -20,12 +20,22 @@ Whether the final system complements Salesforce or replaces some of its workflow
   can be described in plain text (e.g. on the "Prototype & data" page), never as dead buttons.
 - Browser localStorage is prototype persistence only. It is **not** a secure or shared
   database, and the UI says so.
+- **This is a standalone prototype of Lauren's requested workflows.** Never claim it configures
+  or connects to Salesforce. Out of scope until asked: login, campaigns, opportunities/pipeline,
+  email sending, live integrations.
+- **`reference/` holds Lauren's real files (Word request + Salesforce CSV templates with real
+  contact details).** It is git-ignored. Never copy its contents, names or contact details into
+  `src/`, sample data, docs or commits. Read option lists and headers only.
+- **Never discard data.** Unknown picklist values are kept as-is and flagged "Needs review".
+  Schema upgrades need the user's click, offer a backup first, and leave the old copy untouched.
+  New fields default to empty; never invent values.
 
 ## Tech stack
 - React 18 + TypeScript (strict) + Vite + Tailwind CSS v4 (`@tailwindcss/vite`).
 - React Router with `HashRouter`, plus `base: './'` in `vite.config.ts`, so the built app
   works under any GitHub Pages repository path (e.g. `https://user.github.io/repo-name/`).
-- No backend. Data persists in `localStorage` under the key `el-relationship-workspace:v1`.
+- No backend. Data persists in `localStorage` under `el-relationship-workspace:v2` (schema 2).
+  The schema-1 key `el-relationship-workspace:v1` is read once for the upgrade and never written.
 
 ## Commands
 - `npm install`: install dependencies (first time only)
@@ -35,6 +45,37 @@ Whether the final system complements Salesforce or replaces some of its workflow
 - Publish changes: `git add -A && git commit -m "..." && git push`. The site updates about 1 minute later.
 - GitHub CLI lives at `~/.local/gh/bin/gh` (not on PATH). Signed in as `jeojji`. Commits use
   GitHub's noreply email (set in this repo's git config).
+
+## Requirements
+`REQUIREMENTS.md` maps Lauren's Word document (primary source) and the CSV template headers
+(import aliases) to the data model, lists every difference between them, and holds the open
+questions for Lauren. Update it whenever a field or option list changes.
+
+## Schema (version 2)
+Option lists: `src/lib/options.ts`. Picklist fields are typed `string`/`string[]` on purpose,
+so legacy or imported values outside the list are preserved (and flagged by `src/lib/review.ts`).
+
+**Company:** `name`, `phone`, `website`, `address {street, city, province, postalCode, country}`,
+`industry` (INDUSTRIES, 38), `priority` (High/Medium/Low), `statuses[]` (PARTNER_STATUSES),
+`projectParticipation[]` (PROJECT_TYPES, 17), `lastProjectDate` (YYYY-MM-DD or ''),
+`description` (prototype-only "About"), `notes` (Relationship notes), `legacy?` (pre-upgrade originals).
+
+**Contact:** `companyId`, `firstName`, `lastName`, `jobTitle`, `email`, `workPhone`, `mobilePhone`,
+`linkedInUrl`, `statuses[]`, `priority` (adds "Do Not Contact"), `roles[]` (CONTACT_ROLES),
+`projectParticipation[]`, `lastProjectDate`, `preferredContactMethod`, `source` (SOURCES),
+`alumniPrograms[]` (ALUMNI_OPTIONS incl. "Not an Ivey Alumnus", which is exclusive),
+`graduationYear` (number | null; needs an alumni program), `notes`.
+
+**Activity / Task:** unchanged from schema 1. They carry their own `companyId` (the company at the time).
+
+Migration: `src/data/migrations.ts` (`previewV1Migration`, `migrateV1`), shown to the user
+by `components/UpgradeScreen.tsx`.
+
+### Relationship-history rule
+Activities and completed follow-ups **never** change company when a contact moves. On a
+company change, `updateContact(id, changes, { moveOpenTasks })` moves only that contact's
+**open** follow-ups at the old company, and only if the user chose to. New records default to
+the contact's current company. `LinkFields` keeps a moved contact selectable on old records.
 
 ## Code structure
 ```
@@ -48,7 +89,10 @@ src/
   state/
     DataContext.tsx        Loads data, exposes CRUD actions + cross-record rules
     ToastContext.tsx       Save/error feedback messages
+  data/migrations.ts       Schema 1 → 2 upgrade (pure functions)
   lib/                     Pure helpers (dates, validation, selectors, ids)
+    options.ts             Lauren's picklists, CSV aliases, normalizeOption()
+    review.ts              "Needs review" detection, address formatting
   components/              Layout, UI primitives, forms, timeline
   pages/                   One file per route
 ```
@@ -85,11 +129,29 @@ src/
    views (deep-linkable via `?view=`), search and company filter. Create from the page, the
    dashboard, company/contact profiles, or "Also create a follow-up" when logging an
    activity. Tick to complete (toast offers Undo), edit, delete. Overdue count badge in the sidebar.
-7. **CSV import/export** ⏳ Export each collection; import with column mapping, a
-   preview, per-row validation and duplicate detection before saving.
-8. **Deploy** ✅ Repo https://github.com/jeojji/ivey-el-crm-prototype (public). Live at
+7. **Lauren's fields** ✅ (2026-10-19, not yet pushed) Expanded company and contact schema,
+   sectioned forms with multi-selects, detailed profiles, new filters (status, priority,
+   project type, role, "Needs review"), Do Not Contact flags, schema-1 → 2 upgrade with backup
+   download, relationship-history fix. Verified with headless-browser scripts: 44 upgrade,
+   field and history checks, plus the original workflow test.
+8. **CSV import/export** ⏳ Export each collection. Import with column mapping using the CSV
+   template headers as aliases (see REQUIREMENTS.md), skip the template's instructions row,
+   split `;` multi-values, normalize options via `normalizeOption()`, keep and flag unknown values,
+   link contacts to companies by exact Account Name, preview, per-row validation and duplicate
+   detection before saving.
+9. **Deploy** ✅ Repo https://github.com/jeojji/ivey-el-crm-prototype (public). Live at
    https://jeojji.github.io/ivey-el-crm-prototype/. Every push to `main` rebuilds and
    redeploys via `.github/workflows/deploy.yml` (Pages source: GitHub Actions).
 
 Acceptance workflow (verified end to end with a headless-browser script on 2026-10-19):
 Add a company → add a contact → log a meeting → create a follow-up → see it on the dashboard.
+
+## Remaining work and open questions
+- CSV import/export (step 8).
+- Push this phase to GitHub when the owner approves. The live site then shows the upgrade
+  screen to anyone who used the earlier version.
+- Open questions for Lauren are listed at the end of REQUIREMENTS.md (project-type list for
+  contacts, referral Source wording, "Not an Ivey Alumnus"/EMBA, multi-select project participation,
+  Contact Status in the import template).
+- Not planned until requested: opportunities pipeline (10 stages), campaigns, login and sharing,
+  Outlook logging, course/student linking (Lauren's Phase 2).

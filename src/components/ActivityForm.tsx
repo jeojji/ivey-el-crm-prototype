@@ -38,7 +38,7 @@ export function ActivityForm({ activity, defaultCompanyId, defaultContactId, onS
 
   function validate(): FieldErrors<Field> {
     const next: FieldErrors<Field> = {};
-    if (!subject.trim()) next.subject = 'Add a short subject, e.g. "Intro call with Priya".';
+    if (!subject.trim()) next.subject = 'Add a short subject, e.g. "Intro call with Tamsin".';
     if (!occurredAt || !fromDateTimeLocalValue(occurredAt)) next.occurredAt = 'Choose a date and time.';
     if (!link.companyId && !link.contactId) next.link = 'Link this activity to a company, a contact, or both.';
     if (addFollowUp) {

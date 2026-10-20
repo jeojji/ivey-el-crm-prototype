@@ -1,4 +1,5 @@
-import type { CollectionName, Database, EntityInput, EntityMap } from '../types';
+import { SCHEMA_VERSION, type CollectionName, type Database, type EntityInput, type EntityMap } from '../types';
+import type { MigrationPreview } from './migrations';
 
 /**
  * Storage-agnostic data access. The prototype uses localStorage; a shared database
@@ -6,6 +7,13 @@ import type { CollectionName, Database, EntityInput, EntityMap } from '../types'
  * returning it from createRepository() in ./index.ts.
  */
 export interface DataRepository {
+  /** Saved data in an older format that needs the user's go-ahead to upgrade, or null. */
+  getPendingMigration(): Promise<MigrationPreview | null>;
+  /** Upgrades older data to the current schema. The original copy is left untouched. */
+  runMigration(): Promise<void>;
+  /** JSON backups: the current data, or the untouched pre-upgrade original (null if none). */
+  getBackup(kind: 'current' | 'pre-upgrade'): Promise<string | null>;
+
   loadAll(): Promise<Database>;
   create<K extends CollectionName>(collection: K, input: EntityInput<K>): Promise<EntityMap[K]>;
   update<K extends CollectionName>(
@@ -19,5 +27,5 @@ export interface DataRepository {
 }
 
 export function emptyDatabase(): Database {
-  return { schemaVersion: 1, companies: [], contacts: [], activities: [], tasks: [] };
+  return { schemaVersion: SCHEMA_VERSION, companies: [], contacts: [], activities: [], tasks: [] };
 }

@@ -8,7 +8,7 @@ interface ModalProps {
   title: string;
   description?: string;
   children: ReactNode;
-  size?: 'md' | 'lg';
+  size?: 'md' | 'lg' | 'xl';
 }
 
 /** Accessible dialog built on the native <dialog> element (focus trap + Esc for free). */
@@ -30,7 +30,7 @@ export function Modal({ open, onClose, title, description, children, size = 'md'
         onClose();
       }}
       aria-labelledby="modal-title"
-      className={`m-auto max-h-[90vh] w-[calc(100%-2rem)] overflow-y-auto rounded-xl bg-white p-0 shadow-2xl backdrop:bg-neutral-950/40 ${size === 'lg' ? 'max-w-2xl' : 'max-w-lg'}`}
+      className={`m-auto max-h-[90vh] w-[calc(100%-2rem)] overflow-y-auto rounded-xl bg-white p-0 shadow-2xl backdrop:bg-neutral-950/40 ${size === 'xl' ? 'max-w-3xl' : size === 'lg' ? 'max-w-2xl' : 'max-w-lg'}`}
     >
       {open && (
         <div>
@@ -58,7 +58,7 @@ export function Modal({ open, onClose, title, description, children, size = 'md'
 /** Standard Cancel / Save row at the bottom of a form inside a Modal. */
 export function ModalFooter({ onCancel, submitLabel, saving }: { onCancel: () => void; submitLabel: string; saving?: boolean }) {
   return (
-    <div className="-mx-6 mt-6 -mb-5 flex justify-end gap-2 border-t border-neutral-100 bg-neutral-50 px-6 py-4">
+    <div className="sticky bottom-0 -mx-6 mt-6 -mb-5 flex justify-end gap-2 border-t border-neutral-100 bg-neutral-50 px-6 py-4">
       <Button variant="secondary" onClick={onCancel}>Cancel</Button>
       <Button type="submit" disabled={saving}>{saving ? 'Saving…' : submitLabel}</Button>
     </div>

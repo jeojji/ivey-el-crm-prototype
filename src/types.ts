@@ -3,19 +3,40 @@
 
 export type ID = string;
 
-export const RELATIONSHIP_STATUSES = ['Active partner', 'Prospect', 'On hold', 'Past partner'] as const;
-export type RelationshipStatus = (typeof RELATIONSHIP_STATUSES)[number];
+export interface Address {
+  street: string;
+  city: string;
+  province: string;
+  postalCode: string;
+  country: string;
+}
+
+// Picklist fields are typed as plain strings on purpose: a value that isn't one of Lauren's
+// options (e.g. an old "On hold" status) is kept as-is and flagged for review, never dropped.
+// Official options live in lib/options.ts. Empty string / empty array = not recorded.
 
 export interface Company {
   id: ID;
   name: string;
-  status: RelationshipStatus;
-  industry: string;
-  city: string;
+  phone: string;
   website: string;
+  address: Address;
+  /** One of INDUSTRIES. */
+  industry: string;
+  /** High | Medium | Low */
+  priority: string;
+  /** Any of PARTNER_STATUSES (multi-select). */
+  statuses: string[];
+  /** Any of PROJECT_TYPES (multi-select). */
+  projectParticipation: string[];
+  /** YYYY-MM-DD, or '' */
+  lastProjectDate: string;
+  /** Short "what they do" summary. Prototype field, not in Lauren's list. */
   description: string;
-  /** Pinned relationship notes shown on the company profile. */
+  /** "Notes / Relationship Context" */
   notes: string;
+  /** Original values replaced during a schema upgrade, kept for reference. */
+  legacy?: Record<string, string>;
   createdAt: string;
   updatedAt: string;
 }
@@ -27,8 +48,28 @@ export interface Contact {
   lastName: string;
   jobTitle: string;
   email: string;
-  phone: string;
+  workPhone: string;
+  mobilePhone: string;
+  linkedInUrl: string;
+  /** Any of PARTNER_STATUSES (multi-select). */
+  statuses: string[];
+  /** High | Medium | Low | Do Not Contact */
+  priority: string;
+  /** Any of CONTACT_ROLES (multi-select). */
+  roles: string[];
+  /** Any of PROJECT_TYPES (multi-select). */
+  projectParticipation: string[];
+  lastProjectDate: string;
+  /** Email | Phone | LinkedIn | In-Person */
+  preferredContactMethod: string;
+  /** One of SOURCES. */
+  source: string;
+  /** Any of ALUMNI_OPTIONS (multi-select). */
+  alumniPrograms: string[];
+  graduationYear: number | null;
+  /** "Notes / Relationship Context" */
   notes: string;
+  legacy?: Record<string, string>;
   createdAt: string;
   updatedAt: string;
 }
@@ -67,8 +108,10 @@ export interface Task {
   updatedAt: string;
 }
 
+export const SCHEMA_VERSION = 2;
+
 export interface Database {
-  schemaVersion: 1;
+  schemaVersion: typeof SCHEMA_VERSION;
   companies: Company[];
   contacts: Contact[];
   activities: Activity[];
