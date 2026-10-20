@@ -251,41 +251,41 @@ server/
    views (deep-linkable via `?view=`), search and company filter. Create from the page, the
    dashboard, company/contact profiles, or "Also create a follow-up" when logging an
    activity. Tick to complete (toast offers Undo), edit, delete. Overdue count badge in the sidebar.
-7. **Lauren's fields** ✅ (2026-10-19, not yet pushed) Expanded company and contact schema,
+7. **Lauren's fields** ✅ (2026-10-19, pushed 2026-10-20) Expanded company and contact schema,
    sectioned forms with multi-selects, detailed profiles, new filters (status, priority,
    project type, role, "Needs review"), Do Not Contact flags, schema-1 → 2 upgrade with backup
    download, relationship-history fix. Verified with headless-browser scripts: 44 upgrade,
    field and history checks, plus the original workflow test.
-8. **CSV import/export + backup/restore** ✅ (2026-10-20, not yet pushed) `/import-export` page.
+8. **CSV import/export + backup/restore** ✅ (2026-10-20, pushed 2026-10-20) `/import-export` page.
    Import: choose file → column mapping (template headers auto-mapped) → preview (new, updates,
    conflicts with per-field choices, needs-your-choice, already up to date, skipped, flagged) →
    one all-or-nothing `bulkWrite`. Company matching for contacts is resolved per Account Name.
    Exports: companies/contacts in template format (+ Workspace ID), activities, follow-ups.
    Full JSON backup and validated restore. Full rules: REQUIREMENTS.md, "CSV import and export".
-9. **Applications** ✅ (2026-10-20, not yet pushed) Engagement opportunities with Lauren's
+9. **Applications** ✅ (2026-10-20, pushed 2026-10-20) Engagement opportunities with Lauren's
    10 stages: list with search and filters (stage, awaiting review, deadlines, project type, program,
    term, company), pipeline with a stage control per card (+ Undo), detail page with a stage tracker,
    next/previous buttons and stage history, add/edit/delete, applications on company and contact
    profiles, activity/follow-up links, dashboard "Open applications", "Applications awaiting review"
    and "Participation deadlines", CSV export, schema 2 → 3 upgrade.
-10. **Add email intake** ✅ (2026-10-20, not yet pushed) Manual 4-step intake from the Possible
+10. **Add email intake** ✅ (2026-10-20, pushed 2026-10-20) Manual 4-step intake from the Possible
     Workflow PDF: paste email + enter sender/recipients/subject/date, explicit original sender for
     forwards, suggested contact/company matches, create-or-link records, optional application,
     review with duplicate warning, one all-or-nothing save. Email page with read-only original,
     separate notes, link corrections and edit history. Emails show in company, contact and
     application histories.
-11. **Local AI suggestions** ✅ (2026-10-20, not yet pushed) Ollama + qwen2.5:7b on 127.0.0.1, backend
+11. **Local AI suggestions** ✅ (2026-10-20, pushed 2026-10-20) Ollama + qwen2.5:7b on 127.0.0.1, backend
     plugin, validated structured output with verifiable excerpts, injection detection, demo mode on
     Pages. Measured 98.1% on 14 synthetic emails, ~17 s per email, verified with internet blocked.
     Tuning notes: no `repeat_penalty` (it breaks verbatim quoting); schema `maxLength`/`maxItems` +
     `num_predict` 900 prevent runaway repetition.
-12. **Relationship briefs + conversation prep** ✅ (2026-10-20, not yet pushed) /prep and /briefs/:id,
+12. **Relationship briefs + conversation prep** ✅ (2026-10-20, pushed 2026-10-20) /prep and /briefs/:id,
     facts with verified quotes, separated suggestions, outdated detection, confirm-before-task,
     editable/copyable drafts. Live eval: all safety checks pass; ~27 s per brief.
-13. **Campaign tracking + project feedback** ✅ (2026-10-20, not yet pushed) Campaigns with per-participant
+13. **Campaign tracking + project feedback** ✅ (2026-10-20, pushed 2026-10-20) Campaigns with per-participant
     Opportunity statuses, DNC exclusion, templates for copying, manual outreach recording, participant
     export. Feedback with immutable original text, dated manual flags shown on company + new application.
-14. **Daily-use review + demo preparation** ✅ (2026-10-20, not yet pushed) Every delete explains
+14. **Daily-use review + demo preparation** ✅ (2026-10-20, pushed 2026-10-20) Every delete explains
     what happens to linked records (`LinkedImpact`). Closing a form with typed input asks first (Modal). Other-tab
     saves sync in (`repository.subscribe`), and future feedback dates are refused. Tables scroll on narrow screens, the sidebar
     is grouped, and "Import contacts next" works. **Reset demo data** (Prototype & data, `#demo-data`) asks for confirmation and offers a backup.
@@ -307,7 +307,7 @@ similar checks when changing import, migration or history logic. Adding Vitest w
 sensible next step if tests should live in the repo.
 
 ## Remaining work and open questions
-- Push the CSV import/export, Applications, Add email, Local AI, Briefs and Campaigns/Feedback phases to GitHub when the owner approves. Anyone who
+- All phases were pushed on 2026-10-20 (commit 7f8e848). Anyone who
   used the live site gets the upgrade screen (schema 2 → 3) once.
 - From the Possible Workflow PDF, not built: application documents, uploading saved email files, a review queue for uncertain matches, refreshing a brief
   automatically after a meeting.

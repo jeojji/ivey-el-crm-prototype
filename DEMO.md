@@ -19,9 +19,8 @@ How to show the EL Relationship Workspace prototype, and what it does and does n
 **Both modes save data in the browser's localStorage.** Running the app locally does not give it a
 database. See [Data storage limitation](#data-storage-limitation-and-proposed-migration) below.
 
-The public site only updates when the project is pushed to GitHub. Right now the
-public site still shows the version from 2026-10-19 (Lauren's fields), from before CSV import,
-applications, Add email, briefs, campaigns and feedback were added.
+The public site updates about a minute after each push to GitHub. It was last updated on
+2026-10-20 and includes everything described here except local AI, which only runs on a computer set up for it.
 
 ## Setup
 
