@@ -32,6 +32,9 @@ Whether the final system complements Salesforce or replaces some of its workflow
 - `npm run dev`: start local dev server at http://localhost:5173/
 - `npm run build`: type-check and build into `dist/`
 - `npm run preview`: serve the built `dist/` folder locally
+- Publish changes: `git add -A && git commit -m "..." && git push`. The site updates about 1 minute later.
+- GitHub CLI lives at `~/.local/gh/bin/gh` (not on PATH). Signed in as `jeojji`. Commits use
+  GitHub's noreply email (set in this repo's git config).
 
 ## Code structure
 ```
@@ -84,7 +87,9 @@ src/
    activity. Tick to complete (toast offers Undo), edit, delete. Overdue count badge in the sidebar.
 7. **CSV import/export** ⏳ Export each collection; import with column mapping, a
    preview, per-row validation and duplicate detection before saving.
-8. **Deploy** ⏳ GitHub repo + GitHub Pages (workflow in `.github/workflows/deploy.yml`).
+8. **Deploy** ✅ Repo https://github.com/jeojji/ivey-el-crm-prototype (public). Live at
+   https://jeojji.github.io/ivey-el-crm-prototype/. Every push to `main` rebuilds and
+   redeploys via `.github/workflows/deploy.yml` (Pages source: GitHub Actions).
 
 Acceptance workflow (verified end to end with a headless-browser script on 2026-10-19):
 Add a company → add a contact → log a meeting → create a follow-up → see it on the dashboard.
