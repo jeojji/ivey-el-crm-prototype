@@ -129,8 +129,40 @@ function parseCell(field: FieldDef, raw: string, row: ParsedRow): void {
   }
 }
 
-/** Applies a column mapping to raw CSV rows (header row first). */
-export function prepareFile(kind: ImportKind, table: string[][], mapping: (string | null)[]): PreparedFile {
+/**
+ * Pending edits made on the review screen: row line → field key → replacement cell text.
+ * They apply only to this import. The uploaded file (`table`) is never changed.
+ */
+export type RowEdits = Record<number, Record<string, string>>;
+
+/** The cell text the uploaded file has for each mapped field of one row. */
+export function originalCells(table: string[][], mapping: (string | null)[], line: number): Record<string, string> {
+  const cells = table[line - 1] ?? [];
+  const out: Record<string, string> = {};
+  mapping.forEach((key, col) => {
+    if (key) out[key] = cells[col] ?? '';
+  });
+  return out;
+}
+
+/**
+ * Checks and normalizes one row from its cell text per field key, exactly as an import does.
+ * Also used by the review screen's Edit form to validate edits before they are kept.
+ */
+export function parseRowCells(kind: ImportKind, line: number, cellsByKey: Record<string, string>): ParsedRow {
+  const fields = fieldsFor(kind);
+  const row: ParsedRow = { line, values: {}, unknown: [], warnings: [], errors: [], accountName: '' };
+  for (const field of fields) {
+    if (field.key in cellsByKey) parseCell(field, cellsByKey[field.key], row);
+  }
+  for (const f of fields.filter((f) => f.required)) {
+    if (!row.values[f.key]) row.errors.push(`${f.label} is missing.`);
+  }
+  return row;
+}
+
+/** Applies a column mapping (and any pending edits) to raw CSV rows (header row first). */
+export function prepareFile(kind: ImportKind, table: string[][], mapping: (string | null)[], edits: RowEdits = {}): PreparedFile {
   const [headers = [], ...body] = table;
   const fields = fieldsFor(kind);
   const mappingErrors: string[] = [];
@@ -154,14 +186,12 @@ export function prepareFile(kind: ImportKind, table: string[][], mapping: (strin
   }
 
   const rows = body.slice(start).map((cells, i): ParsedRow => {
-    const row: ParsedRow = { line: i + start + 2, values: {}, unknown: [], warnings: [], errors: [], accountName: '' };
+    const line = i + start + 2;
+    const byKey: Record<string, string> = {};
     mapping.forEach((key, col) => {
-      const field = key ? fields.find((f) => f.key === key) : undefined;
-      if (field) parseCell(field, cells[col] ?? '', row);
+      if (key) byKey[key] = edits[line]?.[key] ?? cells[col] ?? '';
     });
-    for (const f of fields.filter((f) => f.required)) {
-      if (!row.values[f.key]) row.errors.push(`${f.label} is missing.`);
-    }
+    const row = parseRowCells(kind, line, byKey);
     if (cells.length > headers.length && cells.slice(headers.length).some((c) => c.trim())) {
       row.warnings.push(`This row has more cells than there are columns. The extra cells were ignored.`);
     }
@@ -186,6 +216,14 @@ export function normalizeName(name: string): string {
     .trim();
 }
 
+/**
+ * Key for an *exact* company-name match: only case, spacing and Unicode form are ignored.
+ * "ASTER  labs" = "Aster Labs", but "Aster Labs Inc." or "Aster-Labs" are only similar.
+ */
+export function exactNameKey(name: string): string {
+  return name.normalize('NFC').toLowerCase().replace(/\s+/g, ' ').trim();
+}
+
 const LEGAL_SUFFIX = /\s+(inc|incorporated|ltd|limited|corp|corporation|co|company|llc|llp|lp|plc)$/;
 /** Name without a legal suffix ("Acme Ltd" → "acme"), for suggesting possible matches. */
 function coreName(name: string): string {
@@ -194,9 +232,47 @@ function coreName(name: string): string {
   return n;
 }
 
+/** Edit distance, capped: returns max + 1 as soon as the distance exceeds `max`. */
+function editDistance(a: string, b: string, max: number): number {
+  if (Math.abs(a.length - b.length) > max) return max + 1;
+  let prev = Array.from({ length: b.length + 1 }, (_, j) => j);
+  for (let i = 1; i <= a.length; i++) {
+    const cur = [i];
+    let rowMin = i;
+    for (let j = 1; j <= b.length; j++) {
+      cur[j] = Math.min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
+      rowMin = Math.min(rowMin, cur[j]);
+    }
+    if (rowMin > max) return max + 1;
+    prev = cur;
+  }
+  return prev[b.length];
+}
+
+/**
+ * Why two different names might be the same organization, in plain language, or null.
+ * Used only to *suggest*: a similar name is never linked without the user's confirmation.
+ */
+export function similarNameReason(a: string, b: string): string | null {
+  if (exactNameKey(a) === exactNameKey(b)) return null;
+  const na = normalizeName(a);
+  const nb = normalizeName(b);
+  if (!na || !nb) return null;
+  if (na === nb) return 'Same name apart from punctuation, accents or “&”/“and”.';
+  const ca = coreName(a);
+  const cb = coreName(b);
+  if (ca && ca === cb) return 'Same name apart from an ending such as Inc, Ltd or Corp.';
+  if (ca.length >= 6 && cb.length >= 6 && editDistance(ca, cb, 2) <= 2) return 'Very similar spelling: possibly a typo.';
+  const [short, long] = ca.length <= cb.length ? [ca, cb] : [cb, ca];
+  if (short.length >= 5 && long.startsWith(short + ' ')) return 'One name is a shorter form of the other.';
+  return null;
+}
+
 export interface Candidate {
   id: string;
   label: string;
+  /** Plain-language reason this record was suggested. */
+  reason?: string;
 }
 
 export type MatchStatus =
@@ -213,7 +289,7 @@ export interface RecordMatch {
 }
 
 export interface CompanyMatch {
-  /** Normalized Account Name, used to group contacts with the same company. */
+  /** Exact-name key (case and spacing ignored), used to group contacts with the same Account Name. */
   key: string;
   accountName: string;
   status: MatchStatus | 'none';
@@ -222,15 +298,19 @@ export interface CompanyMatch {
 }
 
 export function matchCompanyName(name: string, companies: Company[]): CompanyMatch {
-  const key = normalizeName(name);
+  const key = exactNameKey(name);
   if (!key) return { key: '', accountName: name, status: 'none', companyId: null, candidates: [] };
-  const exact = companies.filter((c) => normalizeName(c.name) === key);
-  if (exact.length === 1) return { key, accountName: name, status: 'matched', companyId: exact[0].id, candidates: [] };
-  const toCand = (c: Company) => ({ id: c.id, label: c.name });
-  if (exact.length > 1) return { key, accountName: name, status: 'ambiguous', companyId: null, candidates: exact.map(toCand) };
-  const core = coreName(name);
-  const similar = core ? companies.filter((c) => coreName(c.name) === core) : [];
-  if (similar.length) return { key, accountName: name, status: 'possible', companyId: null, candidates: similar.map(toCand) };
+  const exact = companies.filter((c) => exactNameKey(c.name) === key);
+  const similar = companies
+    .map((c) => ({ c, reason: similarNameReason(name, c.name) }))
+    .filter((x): x is { c: Company; reason: string } => x.reason !== null)
+    .map(({ c, reason }) => ({ id: c.id, label: c.name, reason }));
+  const exactCands = exact.map((c) => ({ id: c.id, label: c.name, reason: 'Exactly the same name.' }));
+  if (exact.length === 1 && similar.length === 0) return { key, accountName: name, status: 'matched', companyId: exact[0].id, candidates: [] };
+  // An exact match next to near-identical companies is suggested (exact first), never picked silently.
+  if (exact.length === 1) return { key, accountName: name, status: 'possible', companyId: null, candidates: [...exactCands, ...similar] };
+  if (exact.length > 1) return { key, accountName: name, status: 'ambiguous', companyId: null, candidates: [...exactCands, ...similar] };
+  if (similar.length) return { key, accountName: name, status: similar.length > 1 ? 'ambiguous' : 'possible', companyId: null, candidates: similar };
   return { key, accountName: name, status: 'new', companyId: null, candidates: [] };
 }
 
@@ -252,7 +332,7 @@ function contactLabel(row: ParsedRow): string {
 
 export function matchRows(file: PreparedFile, db: Database): PlanRow[] {
   const firstLineFor = new Map<string, number>();
-  return file.rows.map((row) => {
+  const rows = file.rows.map((row) => {
     const id = typeof row.values.id === 'string' ? row.values.id : '';
     let match: RecordMatch;
     let company: CompanyMatch | undefined;
@@ -267,9 +347,14 @@ export function matchRows(file: PreparedFile, db: Database): PlanRow[] {
         match =
           m.status === 'matched'
             ? { status: 'matched', matchId: m.companyId, reason: 'same name', candidates: [] }
-            : { status: m.status === 'none' ? 'new' : m.status, matchId: null, reason: m.status === 'possible' ? 'similar name' : m.status === 'ambiguous' ? 'several companies share this name' : '', candidates: m.candidates };
+            : {
+                status: m.status === 'none' ? 'new' : m.status,
+                matchId: null,
+                reason: m.candidates.length === 1 ? (m.candidates[0].reason ?? 'similar name') : m.candidates.length > 1 ? 'more than one existing company has the same or a similar name.' : '',
+                candidates: m.candidates,
+              };
       }
-      dupKey = match.matchId ?? `name:${normalizeName(name)}`;
+      dupKey = match.matchId ?? `name:${exactNameKey(name)}`;
     } else {
       company = matchCompanyName(row.accountName, db.companies);
       const email = typeof row.values.email === 'string' && isValidEmail(row.values.email) ? row.values.email.toLowerCase() : '';
@@ -294,7 +379,7 @@ export function matchRows(file: PreparedFile, db: Database): PlanRow[] {
       dupKey = match.matchId ?? (email ? `email:${email}` : `name:${first} ${last}|${company.key}`);
     }
 
-    const planRow: PlanRow = { ...row, label: file.kind === 'companies' ? companyLabel(row) : contactLabel(row), match, company };
+    const planRow: PlanRow = { ...row, warnings: [...row.warnings], label: file.kind === 'companies' ? companyLabel(row) : contactLabel(row), match, company };
     if (row.errors.length === 0) {
       const earlier = firstLineFor.get(dupKey);
       if (earlier) planRow.duplicateOfLine = earlier;
@@ -302,6 +387,18 @@ export function matchRows(file: PreparedFile, db: Database): PlanRow[] {
     }
     return planRow;
   });
+  if (file.kind === 'companies') {
+    // A new company whose name is similar (not identical) to an earlier row in the same file may be the
+    // same organization written differently. Neither skipping nor adding it is assumed: the user decides.
+    rows.forEach((r, i) => {
+      if (r.errors.length || r.duplicateOfLine !== undefined || r.match.status !== 'new') return;
+      const other = rows.slice(0, i).find((o) => !o.errors.length && o.duplicateOfLine === undefined && similarNameReason(o.label, r.label));
+      if (!other) return;
+      const reason = similarNameReason(other.label, r.label)!;
+      r.match = { status: 'possible', matchId: null, reason: `looks like row ${other.line} (“${other.label}”) in this file. ${reason}`, candidates: [{ id: `${SAME_ROW}${other.line}`, label: `row ${other.line} (“${other.label}”)`, reason }] };
+    });
+  }
+  return rows;
 }
 
 // ---------------------------------------------------------------------------
@@ -368,8 +465,66 @@ export interface RowDecision {
   conflicts: Record<string, ConflictChoice>;
 }
 
-/** Per Account Name (contacts): an existing company id, 'create', 'none' (no company), or null (unresolved). */
+/**
+ * Per Account Name (contacts): an existing company id, 'create', 'none' (no company),
+ * 'same:<key>' (the same company as another Account Name in this file), or null (not decided yet).
+ */
 export type CompanyDecision = string | 'create' | 'none' | null;
+
+export const SAME_AS = 'same:';
+/** Row target meaning "this is the same record as an earlier row in this file": the row is skipped. */
+export const SAME_ROW = 'row:';
+
+/** All contacts that share one Account Name (ignoring case and spacing): one decision covers them all. */
+export interface CompanyGroup {
+  key: string;
+  /** The Account Name as first written in the file. */
+  accountName: string;
+  /** Other spellings in the file that differ only in case or spacing. */
+  spellings: string[];
+  lines: number[];
+  match: CompanyMatch;
+  /** Earlier new Account Names in this file that look like the same organization. */
+  similarInFile: { key: string; accountName: string; reason: string }[];
+  /** The suggested action. It is only applied automatically for an exact match. */
+  proposal: CompanyDecision;
+  /** 'ready' = exact match or no Account Name; 'accept' = clear new company to accept; 'review' = needs a person. */
+  kind: 'ready' | 'accept' | 'review';
+  /** Changes when the match or suggestions change, so an earlier decision is reset instead of misapplied. */
+  signature: string;
+}
+
+export function planCompanyGroups(rows: PlanRow[]): CompanyGroup[] {
+  const groups = new Map<string, CompanyGroup>();
+  for (const r of rows) {
+    if (!r.company || r.company.status === 'none' || r.errors.length || r.duplicateOfLine !== undefined) continue;
+    const g = groups.get(r.company.key);
+    if (g) {
+      g.lines.push(r.line);
+      if (!g.spellings.includes(r.company.accountName) && r.company.accountName !== g.accountName) g.spellings.push(r.company.accountName);
+    } else {
+      groups.set(r.company.key, { key: r.company.key, accountName: r.company.accountName, spellings: [], lines: [r.line], match: r.company, similarInFile: [], proposal: null, kind: 'review', signature: '' });
+    }
+  }
+  const list = [...groups.values()];
+  list.forEach((g, i) => {
+    const m = g.match;
+    if (m.status === 'new') {
+      g.similarInFile = list
+        .slice(0, i)
+        .filter((o) => o.match.status === 'new')
+        .map((o) => ({ key: o.key, accountName: o.accountName, reason: similarNameReason(o.accountName, g.accountName) ?? '' }))
+        .filter((o) => o.reason);
+    }
+    if (m.status === 'matched') [g.proposal, g.kind] = [m.companyId, 'ready'];
+    else if (m.status === 'new' && g.similarInFile.length === 0) [g.proposal, g.kind] = ['create', 'accept'];
+    else if (m.status === 'new') [g.proposal, g.kind] = [SAME_AS + g.similarInFile[0].key, 'review'];
+    else if (m.status === 'possible') [g.proposal, g.kind] = [m.candidates[0]?.id ?? null, 'review'];
+    else [g.proposal, g.kind] = [null, 'review'];
+    g.signature = [m.status, m.companyId, m.candidates.map((c) => c.id).join(','), g.similarInFile.map((o) => o.key).join(',')].join('|');
+  });
+  return list;
+}
 
 export function defaultRowDecision(row: PlanRow): RowDecision {
   const blocked = row.errors.length > 0 || row.duplicateOfLine !== undefined;
@@ -393,9 +548,21 @@ export function changesSomething(outcome: RowOutcome, decision: RowDecision): bo
   return outcome.action === 'update' && outcome.changes.some((c) => c.kind === 'fill' || (decision.conflicts[c.key] ?? 'keep') !== 'keep');
 }
 
+/** Follows a "same company as another Account Name" decision to that Account Name's own decision. */
+export function resolveCompanyDecision(key: string, companyDecisions: Record<string, CompanyDecision>): { decision: CompanyDecision | undefined; key: string } {
+  const d = companyDecisions[key];
+  if (typeof d === 'string' && d.startsWith(SAME_AS)) {
+    const target = d.slice(SAME_AS.length);
+    const t = companyDecisions[target];
+    // No chains: pointing at an Account Name that itself points elsewhere stays unresolved.
+    return { decision: typeof t === 'string' && t.startsWith(SAME_AS) ? null : t, key: target };
+  }
+  return { decision: d, key };
+}
+
 export function companyIdFor(row: PlanRow, companyDecisions: Record<string, CompanyDecision>): string | null | 'create' | undefined {
   if (!row.company || row.company.status === 'none') return null;
-  const d = companyDecisions[row.company.key];
+  const { decision: d } = resolveCompanyDecision(row.company.key, companyDecisions);
   if (d === undefined || d === null) return undefined; // unresolved
   if (d === 'none') return null;
   return d;
@@ -407,6 +574,7 @@ export function outcomeFor(kind: ImportKind, row: PlanRow, decision: RowDecision
   if (row.duplicateOfLine !== undefined) return { action: 'skip', reason: `Same record as row ${row.duplicateOfLine} in this file.` };
   if (!decision.include) return { action: 'skip', reason: 'Excluded by you.' };
   if (decision.target === null) return { action: 'skip', reason: 'Waiting for you to choose a match.' };
+  if (decision.target.startsWith(SAME_ROW)) return { action: 'skip', reason: `You marked it as the same record as row ${decision.target.slice(SAME_ROW.length)} in this file.` };
   const companyId = kind === 'contacts' ? companyIdFor(row, companyDecisions) : null;
   if (companyId === undefined) return { action: 'skip', reason: `Company “${row.company?.accountName}” needs a match.` };
   if (decision.target === 'new') return { action: 'create' };
@@ -519,11 +687,15 @@ export function buildOperations(
     if (kind === 'contacts') {
       const resolved = companyIdFor(row, companyDecisions);
       if (resolved === 'create' && row.company) {
-        let id = createdCompanyIdByKey.get(row.company.key);
+        // One new company per Account Name (or per group of Account Names the user said are the same).
+        // Only its name is filled in: no other company details are invented.
+        const canonical = resolveCompanyDecision(row.company.key, companyDecisions).key;
+        let id = createdCompanyIdByKey.get(canonical);
         if (!id) {
           id = newId();
-          createdCompanyIdByKey.set(row.company.key, id);
-          ops.createCompanies.push({ id, input: { ...emptyCompany(), name: row.company.accountName.trim() } });
+          createdCompanyIdByKey.set(canonical, id);
+          const name = rows.find((r) => r.company?.key === canonical)?.company?.accountName ?? row.company.accountName;
+          ops.createCompanies.push({ id, input: { ...emptyCompany(), name: name.trim() } });
           summary.companiesCreated++;
         }
         companyId = id;

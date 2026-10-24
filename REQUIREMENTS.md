@@ -148,18 +148,49 @@ guidance row (first cell starts with "INSTRUCTIONS", or at least 40% of cells lo
 | Email, phone, LinkedIn, website | Kept as written. A warning appears if the format looks wrong. Emails are lower-cased. LinkedIn gets `https://` if it's missing. |
 | Blank cells | Never clear an existing value. |
 
-**Matching (re-imports never duplicate).**
-- Companies: Workspace ID (from an export), then name ignoring case, accents, punctuation and
-  "&"/"and". If several existing companies match, that's **ambiguous**. A name that only matches
-  after dropping a legal suffix (Inc, Ltd, Corp, Co, LLC…) is a **possible** match. Both wait for
-  the user to choose an existing record or "add as new". Records are never merged.
+**Matching (re-imports never duplicate).** Updated 2026-10-24 after the stakeholder's import feedback.
+- **Exact** means the same name ignoring only capitals, spacing and Unicode form ("tallgrass  ANALYTICS"
+  = "Tallgrass Analytics"). Only a *unique* exact match, with no near-identical company next to it,
+  is linked automatically.
+- **Similar** names are suggested with a plain-language reason, and always wait for a person to confirm:
+  punctuation, accents or "&"/"and" differ; a legal ending differs (Inc, Ltd, Corp, Co, LLC…); a likely
+  typo (at most 2 letters, names of 6+ letters); one name is a shorter form of the other. Several
+  candidates (or an exact match next to a similar one) are **ambiguous**: the user chooses.
+- Companies: Workspace ID (from an export), then the rules above. Two rows with the same exact name
+  in one file: the later one is skipped as a duplicate. A row whose name is only *similar* to an
+  earlier new row waits for the user: "same company as row N (skip)" or "add as a separate company".
 - Contacts: Workspace ID, then email. Without an email, a single same-named contact at the same
   company (or both with no company) is a match. Otherwise a same-named contact is a possible match.
-- Contacts → companies: Account Name is matched the same way as company names. Each unmatched,
-  possible or ambiguous Account Name is listed **once** with how many contacts use it. The user
-  picks an existing company, "Create new company", or "Import without a company". Rows stay
-  skipped until the user chooses. Import companies first so most Account Names match.
+- **Contacts → companies (proposed actions).** Contacts are grouped by Account Name (exact key), and
+  one decision covers the whole group. Each group shows its proposed action on the review screen:
+  - exact match → linked automatically ("Ready");
+  - no plausible match → "Create new company [name]", which waits for **Accept** (there is an
+    "Accept all proposed new companies" button). Only the name is filled in; nothing else is invented;
+  - similar existing company → "Suggested: existing [name]" with the reason, and **Use [name]** to confirm;
+  - similar to another *new* Account Name in the same file → "same new company as [name]" to confirm,
+    so one company is created for both spellings;
+  - ambiguous → the user picks.
+  **Change** offers: a suggested company, another existing company, the same company as another
+  Account Name in the file, create new, or no company. It can also correct the Account Name for every
+  contact in the group (matching runs again). The review shows how many rows are **ready**, how many
+  wait only for new companies to be accepted, and how many **need review**.
 - A second row in the same file describing the same record is skipped as a duplicate.
+
+**Edit before import.** Every preview row has **Edit**, which opens all mapped fields (picklists as
+lists, multi-selects as checkboxes, the rest as text) checked live with the same rules as the import.
+- Edits apply only to this pending import. The uploaded file is never changed; edits are kept separately
+  per row and field, and a value set back to what the file says is no longer counted as an edit.
+- After an edit, validation, duplicates, matching, company groups and all counts are recalculated. A choice
+  made for the old match is reset rather than misapplied.
+- Changing a contact's Account Name moves only that contact; renaming via **Change** moves the whole group.
+- For a row that updates an existing record, the form shows "In the workspace now: …" under each field,
+  and the review table shows "Current (in the workspace)" next to "Proposed". Conflicts still default to
+  keeping the current value, so existing notes stay unless "add below" or "replace" is chosen.
+- **Restore original row** (in the form or on the row) removes the row's edits. **Cancel** closes without
+  saving, and Esc asks first if something was typed.
+- Pending edits and choices survive going back to the column step, and visiting other pages (kept in
+  memory until Import, Start over or a page reload). "Start over" and "Choose a different file" ask before
+  discarding, and the browser warns before closing or reloading the tab.
 
 **Updates.** For a matched record, each field is either:
 - **Fill**: the existing field is empty, so the file value is applied.
@@ -186,8 +217,8 @@ activity/follow-up → company/contact) pointing to a record in the file. Proble
 the workspace is left untouched. A valid file shows counts next to the current data and requires
 confirmation.
 
-**Real template check (local only).** Lauren's two templates import with no unmatched columns:
-15 companies and 23 contacts, every contact linked to its company, nothing skipped. 8 contacts are
+**Real template check (local only, re-run 2026-10-24).** Lauren's two templates import with no unmatched columns:
+15 companies and 23 contacts, every contact linked to its company by exact name, nothing to review, nothing skipped. 8 contacts are
 flagged because their Source uses the CSV's referral wording. Re-importing creates nothing. Only
 counts were recorded. No reference data is in the repository.
 

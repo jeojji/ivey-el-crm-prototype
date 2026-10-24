@@ -28,3 +28,8 @@ securely, and it isn't connected to Salesforce, Outlook, Calendly or any cloud A
 
 See `SETUP-LOCAL-AI.md`. It runs a model on this computer with Ollama, never a cloud AI. The app
 works fully without it.
+
+## Integrations
+
+None are connected. `INTEGRATION_PLAN.md` describes how email, Calendly and meeting-note connections could
+work later, what access they would need, and what is still unverified.

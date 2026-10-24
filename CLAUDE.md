@@ -161,6 +161,15 @@ Migrations: `src/data/migrations.ts`: `migrateV1` (1→2), `migrateV2` (2→3: e
   chooses otherwise. Notes change only via an explicit "add below" or "replace" choice.
 - Never merge records. Ambiguous or possible matches (records or Account Names) wait for the
   user. Unresolved rows are skipped, not guessed.
+- **Company links** (`planCompanyGroups`): only a unique *exact* name (`exactNameKey`: case/spacing only,
+  no near-identical neighbour) links automatically. Similar names (`similarNameReason`) are suggestions that
+  need confirmation. "Create new company" is a proposal that needs Accept (bulk "Accept all" allowed).
+  `same:<key>` links two Account Names in one file to one company; `row:<line>` marks a company row as the
+  same as an earlier row. New companies get only their name.
+- **Edit before import**: edits live in `RowEdits` (line → field → cell text), applied by `prepareFile`;
+  the uploaded `table` is never changed. Stored choices carry a signature of the match they were made for,
+  so an edit that changes the match resets the choice. The import in progress is kept in
+  `state/ImportDraftContext.tsx` (memory only) so other pages can be visited; discarding asks first.
 - Re-importing the same file (or an export) must create nothing: match by Workspace ID, then
   name/email. Duplicate rows within a file are skipped.
 - Import never creates activities. `lastProjectDate` ≠ last communication (derived from emails,
@@ -316,7 +325,11 @@ server/
 15. **Daily-use simplification** ✅ (2026-10-20, pushed 2026-10-20) Navigation, + Add menu, Home, company tabs, short
     forms, conversation prep (saved briefs first, Adjust sources), wording. No data-model change. Verified by a
     58-check walkthrough (keyboard, focus, deep links, phone width, data unchanged by viewing) plus all suites.
-16. **Deploy** ✅ Repo https://github.com/jeojji/ivey-el-crm-prototype (public). Live at
+16. **Import usability (stakeholder feedback)** ✅ (2026-10-24, pushed 2026-10-24) Proposed company links with
+    reasons, bulk accept, Change/rename, ready vs need-review counts; Edit for every preview row with current vs
+    proposed, restore, recalculation and a kept draft. Verified: import logic 59, link/edit logic 33, import
+    screens 32, link/edit walkthrough 37, real templates 7 (counts only), demo journey 20.
+17. **Deploy** ✅ Repo https://github.com/jeojji/ivey-el-crm-prototype (public). Live at
    https://jeojji.github.io/ivey-el-crm-prototype/. Every push to `main` rebuilds and
    redeploys via `.github/workflows/deploy.yml` (Pages source: GitHub Actions).
 
@@ -339,5 +352,8 @@ sensible next step if tests should live in the repo.
   contacts, referral Source wording, "Not an Ivey Alumnus"/EMBA, multi-select project participation,
   Contact Status in the import template).
 - Proposed, separate piece of work: local SQLite database behind a small local server (see DEMO.md).
+- Integrations (application-form emails, BCC capture, Calendly bookings + Calendly Notetaker recaps, which Lauren
+  uses): discovery only, in INTEGRATION_PLAN.md.
+  Nothing is connected. Next steps there start with the local database and a review-queue inbox with file import.
 - Not planned until requested: sending email / sequences, login and sharing,
   Outlook logging, course/student linking (Lauren's Phase 2).

@@ -5,6 +5,7 @@ import App from './App';
 import { createRepository } from './data';
 import { DataProvider } from './state/DataContext';
 import { ToastProvider } from './state/ToastContext';
+import { ImportDraftProvider } from './state/ImportDraftContext';
 import './index.css';
 
 const repository = createRepository();
@@ -15,7 +16,9 @@ createRoot(document.getElementById('root')!).render(
     <HashRouter>
       <ToastProvider>
         <DataProvider repository={repository}>
-          <App />
+          <ImportDraftProvider>
+            <App />
+          </ImportDraftProvider>
         </DataProvider>
       </ToastProvider>
     </HashRouter>

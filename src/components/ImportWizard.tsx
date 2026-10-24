@@ -1,34 +1,53 @@
-import { useMemo, useState, type ChangeEvent, type ReactNode } from 'react';
+import { useEffect, useMemo, useState, type ChangeEvent, type FormEvent, type ReactNode } from 'react';
 import { Link } from 'react-router-dom';
 import { useData } from '../state/DataContext';
 import { useToast } from '../state/ToastContext';
+import { useClearDraft, useDraft } from '../state/ImportDraftContext';
 import { parseCsv, readFileText } from '../lib/csv';
 import { createId } from '../lib/id';
-import { autoMap, detectKind, fieldsFor, type ImportKind } from '../import/fields';
+import { fullName } from '../lib/selectors';
+import { autoMap, detectKind, fieldsFor, getPath, type FieldDef, type ImportKind } from '../import/fields';
 import {
+  SAME_AS,
+  SAME_ROW,
   buildOperations,
   changesSomething,
   defaultCompanyDecision,
   defaultRowDecision,
   isInstructionsRow,
   matchRows,
+  originalCells,
   outcomeFor,
+  parseRowCells,
+  planCompanyGroups,
   prepareFile,
+  resolveCompanyDecision,
   type CompanyDecision,
-  type CompanyMatch,
+  type CompanyGroup,
   type ConflictChoice,
   type FieldChange,
   type ImportSummary,
   type PlanRow,
   type RowDecision,
+  type RowEdits,
   type RowOutcome,
   type Value,
 } from '../import/plan';
-import { Badge, Button, inputClass, filterSelectClass } from './ui';
+import type { Company, Contact, Database } from '../types';
+import { Badge, Button, CheckboxGroupField, SelectField, TextAreaField, TextField, inputClass, filterSelectClass, picklist } from './ui';
 import { Icon } from './Icon';
+import { ConfirmDialog, Modal } from './Modal';
 
 type Step = 'choose' | 'map' | 'preview' | 'done';
-type Filter = 'all' | 'new' | 'update' | 'conflict' | 'unchanged' | 'choose' | 'skip' | 'flagged';
+type Filter = 'all' | 'ready' | 'accept' | 'review' | 'conflict' | 'edited' | 'unchanged' | 'skip' | 'flagged';
+/** What a row is waiting for, or what will happen to it. */
+type RowState = 'ready' | 'accept' | 'review' | 'unchanged' | 'skip';
+/** Where an Account Name's company link stands. */
+type GroupState = 'ready' | 'accept' | 'review' | 'decided';
+
+/** A choice the user made, with the match it was made for. If the match changes (e.g. after an edit), the choice is reset. */
+type StoredRow = RowDecision & { sig: string };
+type StoredCompany = { decision: CompanyDecision; sig: string };
 
 const KIND_LABEL: Record<ImportKind, { noun: string; plural: string; template: string }> = {
   companies: { noun: 'company', plural: 'companies', template: 'Accounts template (SF_Import_Accounts)' },
@@ -37,9 +56,9 @@ const KIND_LABEL: Record<ImportKind, { noun: string; plural: string; template: s
 
 const CHOICE_LABEL: Record<ConflictChoice, string> = {
   keep: 'Keep current',
-  file: 'Use file value',
+  file: 'Use proposed value',
   combine: 'Keep both (add new values)',
-  append: 'Add file note below current',
+  append: 'Add proposed note below current',
 };
 
 function show(v: Value | null | undefined): string {
@@ -47,40 +66,185 @@ function show(v: Value | null | undefined): string {
   return Array.isArray(v) ? v.join('; ') : String(v);
 }
 
+const rowSig = (r: PlanRow) => [r.match.status, r.match.matchId, r.match.candidates.map((c) => c.id).join(','), r.errors.length > 0, r.duplicateOfLine ?? ''].join('|');
+const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
+
 export function ImportWizard() {
   const data = useData();
   const { notify } = useToast();
   const db = data.database;
+  const clearDraft = useClearDraft();
 
-  const [step, setStep] = useState<Step>('choose');
-  const [kind, setKind] = useState<ImportKind>('companies');
-  const [fileName, setFileName] = useState('');
-  const [table, setTable] = useState<string[][]>([]);
-  const [mapping, setMapping] = useState<(string | null)[]>([]);
-  const [notice, setNotice] = useState<string | null>(null);
+  // Everything about the import in progress is kept in a draft, so visiting another page and coming
+  // back doesn't lose it. The uploaded file (`table`) is never changed: edits are stored separately.
+  const [step, setStep] = useDraft<Step>('step', 'choose');
+  const [kind, setKind] = useDraft<ImportKind>('kind', 'companies');
+  const [fileName, setFileName] = useDraft('fileName', '');
+  const [table, setTable] = useDraft<string[][]>('table', []);
+  const [mapping, setMapping] = useDraft<(string | null)[]>('mapping', []);
+  const [notice, setNotice] = useDraft<string | null>('notice', null);
+  // Matching uses a snapshot of the data taken when the review opens, so the list doesn't reshuffle while choosing.
+  const [snapshot, setSnapshot] = useDraft<Database | null>('snapshot', null);
+  const [edits, setEdits] = useDraft<RowEdits>('edits', {});
+  const [rowChoices, setRowChoices] = useDraft<Record<number, StoredRow>>('rowChoices', {});
+  const [companyChoices, setCompanyChoices] = useDraft<Record<string, StoredCompany>>('companyChoices', {});
+  const [filter, setFilter] = useDraft<Filter>('filter', 'all');
+  const [result, setResult] = useDraft<ImportSummary | null>('result', null);
+
+  const [restored] = useState(() => step === 'map' || step === 'preview');
   const [readError, setReadError] = useState<string | null>(null);
-
-  // Preview state. Matching uses a snapshot of the data taken when the preview opens, so the
-  // list doesn't reshuffle while the user is making choices.
-  const [snapshot, setSnapshot] = useState(db);
-  const [rows, setRows] = useState<PlanRow[]>([]);
-  const [decisions, setDecisions] = useState<RowDecision[]>([]);
-  const [companyDecisions, setCompanyDecisions] = useState<Record<string, CompanyDecision>>({});
-  const [filter, setFilter] = useState<Filter>('all');
   const [saving, setSaving] = useState(false);
-  const [result, setResult] = useState<ImportSummary | null>(null);
+  const [editingLine, setEditingLine] = useState<number | null>(null);
+  const [confirmDiscard, setConfirmDiscard] = useState<null | (() => void)>(null);
 
-  const prepared = useMemo(() => (table.length ? prepareFile(kind, table, mapping) : null), [kind, table, mapping]);
+  const hasPendingWork = (step === 'map' || step === 'preview') && (Object.keys(edits).length > 0 || Object.keys(rowChoices).length > 0 || Object.keys(companyChoices).length > 0);
+
+  // Warn before closing or reloading the tab while edits or choices haven't been imported.
+  useEffect(() => {
+    if (!hasPendingWork) return;
+    const warn = (e: BeforeUnloadEvent) => e.preventDefault();
+    window.addEventListener('beforeunload', warn);
+    return () => window.removeEventListener('beforeunload', warn);
+  }, [hasPendingWork]);
+
+  const base = snapshot ?? db;
+  const prepared = useMemo(() => (table.length ? prepareFile(kind, table, mapping, edits) : null), [kind, table, mapping, edits]);
+  const rows = useMemo(() => (prepared && step === 'preview' ? matchRows(prepared, base) : []), [prepared, step, base]);
+  const decisions: StoredRow[] = rows.map((r) => {
+    const stored = rowChoices[r.line];
+    const sig = rowSig(r);
+    return stored && stored.sig === sig ? stored : { ...defaultRowDecision(r), sig };
+  });
+  const groups = useMemo(() => (kind === 'contacts' ? planCompanyGroups(rows) : []), [rows, kind]);
+  const groupByKey = new Map(groups.map((g) => [g.key, g]));
+  const companyDecisions: Record<string, CompanyDecision> = {};
+  for (const g of groups) {
+    const stored = companyChoices[g.key];
+    companyDecisions[g.key] = stored && stored.sig === g.signature ? stored.decision : defaultCompanyDecision(g.match);
+  }
+
+  function groupState(g: CompanyGroup): GroupState {
+    const d = companyDecisions[g.key];
+    if (d === null || d === undefined) return g.kind === 'accept' ? 'accept' : 'review';
+    if (typeof d === 'string' && d.startsWith(SAME_AS)) {
+      const target = groupByKey.get(d.slice(SAME_AS.length));
+      if (resolveCompanyDecision(g.key, companyDecisions).decision == null) return target && target.kind === 'accept' ? 'accept' : 'review';
+      return 'decided';
+    }
+    return g.kind === 'ready' && d === g.proposal ? 'ready' : 'decided';
+  }
+
+  const outcomes: RowOutcome[] = useMemo(
+    () => rows.map((r, i) => outcomeFor(kind, r, decisions[i], base, companyDecisions)),
+    // decisions/companyDecisions are rebuilt each render from the stored choices below.
+    [rows, kind, base, rowChoices, companyChoices],
+  );
+
+  function rowState(i: number): RowState {
+    const r = rows[i];
+    const d = decisions[i];
+    if (r.errors.length || r.duplicateOfLine !== undefined || !d.include) return 'skip';
+    if (d.target === null) return 'review';
+    const g = r.company && r.company.status !== 'none' ? groupByKey.get(r.company.key) : undefined;
+    if (g) {
+      const gs = groupState(g);
+      if (gs === 'accept' || gs === 'review') return gs;
+    }
+    const o = outcomes[i];
+    if (o.action === 'create' || changesSomething(o, d)) return 'ready';
+    if (o.action === 'skip') return 'skip';
+    return 'unchanged';
+  }
+  const states = rows.map((_, i) => rowState(i));
+  const hasConflict = (o: RowOutcome) => o.action === 'update' && o.changes.some((c) => c.kind === 'conflict');
+
+  const counts = {
+    all: rows.length,
+    ready: states.filter((s) => s === 'ready').length,
+    accept: states.filter((s) => s === 'accept').length,
+    review: states.filter((s) => s === 'review').length,
+    conflict: outcomes.filter(hasConflict).length,
+    edited: rows.filter((r) => edits[r.line]).length,
+    unchanged: states.filter((s) => s === 'unchanged').length,
+    skip: states.filter((s) => s === 'skip').length,
+    flagged: rows.filter((r) => r.unknown.length).length,
+  };
+
+  const visible = rows
+    .map((r, i) => ({ r, i, o: outcomes[i], s: states[i] }))
+    .filter(({ r, o, s }) => {
+      switch (filter) {
+        case 'ready':
+        case 'accept':
+        case 'review':
+        case 'unchanged':
+        case 'skip':
+          return s === filter;
+        case 'conflict': return hasConflict(o);
+        case 'edited': return !!edits[r.line];
+        case 'flagged': return r.unknown.length > 0;
+        default: return true;
+      }
+    });
+
+  const setDecision = (i: number, patch: Partial<RowDecision>) => {
+    const r = rows[i];
+    setRowChoices((c) => ({ ...c, [r.line]: { ...decisions[i], ...patch, sig: rowSig(r) } }));
+  };
+  const setCompany = (g: CompanyGroup, decision: CompanyDecision) =>
+    setCompanyChoices((c) => ({ ...c, [g.key]: { decision, sig: g.signature } }));
+  const acceptable = groups.filter((g) => g.kind === 'accept' && groupState(g) === 'accept');
+  const acceptAllNew = () =>
+    setCompanyChoices((c) => {
+      const next = { ...c };
+      for (const g of acceptable) next[g.key] = { decision: 'create', sig: g.signature };
+      return next;
+    });
+
+  /** Stores only the fields that really differ from the uploaded file; restoring a value removes its edit. */
+  function saveRowEdits(line: number, cells: Record<string, string> | null) {
+    setEdits((all) => {
+      const next = { ...all };
+      if (!cells) {
+        delete next[line];
+        return next;
+      }
+      const original = originalCells(table, mapping, line);
+      const changed: Record<string, string> = {};
+      for (const [key, value] of Object.entries(cells)) {
+        const a = parseRowCells(kind, line, { [key]: value });
+        const b = parseRowCells(kind, line, { [key]: original[key] ?? '' });
+        if (JSON.stringify([a.values[key], a.accountName]) !== JSON.stringify([b.values[key], b.accountName])) changed[key] = value;
+      }
+      if (Object.keys(changed).length) next[line] = changed;
+      else delete next[line];
+      return next;
+    });
+  }
+
+  /** Renames an Account Name for every contact that uses it, so they stay linked together. */
+  function renameAccount(g: CompanyGroup, name: string) {
+    const lines = rows.filter((r) => r.company?.key === g.key).map((r) => r.line);
+    setEdits((all) => {
+      const next = { ...all };
+      for (const line of lines) {
+        const original = originalCells(table, mapping, line).companyId ?? '';
+        const rest = { ...(next[line] ?? {}) };
+        if (name.trim() === original.trim()) delete rest.companyId;
+        else rest.companyId = name.trim();
+        if (Object.keys(rest).length) next[line] = rest;
+        else delete next[line];
+      }
+      return next;
+    });
+  }
 
   function reset() {
-    setStep('choose');
-    setFileName('');
-    setTable([]);
-    setNotice(null);
+    clearDraft();
     setReadError(null);
-    setResult(null);
-    setFilter('all');
   }
+  /** Asks first when there are edits or choices that haven't been imported. */
+  const guard = (action: () => void) => (hasPendingWork ? setConfirmDiscard(() => action) : action());
 
   async function onFile(e: ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
@@ -108,6 +272,9 @@ export function ImportWizard() {
       setFileName(file.name);
       setTable(parsed);
       setMapping(autoMap(useKind, parsed[0]));
+      setEdits({});
+      setRowChoices({});
+      setCompanyChoices({});
       setStep('map');
     } catch {
       setReadError("This file couldn't be read. Check that it's a CSV saved from Excel or Salesforce.");
@@ -116,71 +283,23 @@ export function ImportWizard() {
 
   function openPreview() {
     if (!prepared) return;
-    const planRows = matchRows(prepared, db);
     setSnapshot(db);
-    setRows(planRows);
-    setDecisions(planRows.map(defaultRowDecision));
-    const cd: Record<string, CompanyDecision> = {};
-    for (const r of planRows) if (r.company && !(r.company.key in cd)) cd[r.company.key] = defaultCompanyDecision(r.company);
-    setCompanyDecisions(cd);
     setFilter('all');
     setStep('preview');
   }
 
-  const outcomes: RowOutcome[] = useMemo(
-    () => rows.map((r, i) => outcomeFor(kind, r, decisions[i], snapshot, companyDecisions)),
-    [rows, decisions, snapshot, companyDecisions, kind],
-  );
-
-  const needsChoice = (i: number) => {
-    const r = rows[i];
-    if (r.errors.length || r.duplicateOfLine !== undefined || !decisions[i]?.include) return false;
-    if (decisions[i].target === null) return true;
-    return !!r.company && r.company.status !== 'none' && (companyDecisions[r.company.key] ?? null) === null;
-  };
-  const hasConflict = (o: RowOutcome) => o.action === 'update' && o.changes.some((c) => c.kind === 'conflict');
-
-  const counts = useMemo(() => {
-    const c = { all: rows.length, new: 0, update: 0, conflict: 0, unchanged: 0, choose: 0, skip: 0, flagged: 0 };
-    outcomes.forEach((o, i) => {
-      if (o.action === 'create') c.new++;
-      if (changesSomething(o, decisions[i])) c.update++;
-      if (hasConflict(o)) c.conflict++;
-      if (o.action === 'unchanged' || (o.action === 'update' && !changesSomething(o, decisions[i]))) c.unchanged++;
-      if (needsChoice(i)) c.choose++;
-      else if (o.action === 'skip') c.skip++;
-      if (rows[i].unknown.length) c.flagged++;
-    });
-    return c;
-  }, [outcomes, rows, decisions, companyDecisions]);
-
-  const visible = rows
-    .map((r, i) => ({ r, i, o: outcomes[i] }))
-    .filter(({ r, i, o }) => {
-      switch (filter) {
-        case 'new': return o.action === 'create';
-        case 'update': return changesSomething(o, decisions[i]);
-        case 'conflict': return hasConflict(o);
-        case 'unchanged': return o.action === 'unchanged' || (o.action === 'update' && !changesSomething(o, decisions[i]));
-        case 'choose': return needsChoice(i);
-        case 'skip': return o.action === 'skip' && !needsChoice(i);
-        case 'flagged': return r.unknown.length > 0;
-        default: return true;
-      }
-    });
-
-  const setDecision = (i: number, patch: Partial<RowDecision>) =>
-    setDecisions((ds) => ds.map((d, j) => (j === i ? { ...d, ...patch } : d)));
-
   async function runImport() {
     setSaving(true);
     try {
-      const { ops, summary } = buildOperations(kind, rows, decisions, snapshot, companyDecisions, createId);
+      const { ops, summary } = buildOperations(kind, rows, decisions, base, companyDecisions, createId);
       await data.saveBatch({
         creates: { companies: ops.createCompanies, contacts: ops.createContacts },
         updates: { companies: ops.updateCompanies, contacts: ops.updateContacts },
       });
       setResult(summary);
+      setEdits({});
+      setRowChoices({});
+      setCompanyChoices({});
       setStep('done');
       notify(`Import complete: ${summary.created} added, ${summary.updated} updated.`);
     } catch (err) {
@@ -199,6 +318,17 @@ export function ImportWizard() {
     }
   }
 
+  const discardDialog = (
+    <ConfirmDialog
+      open={confirmDiscard !== null}
+      title="Discard this import?"
+      message={<p>Your edits and choices for “{fileName}” haven't been imported yet. They'll be lost. Nothing in the workspace changes.</p>}
+      confirmLabel="Discard import"
+      onConfirm={() => { const action = confirmDiscard; setConfirmDiscard(null); action?.(); }}
+      onCancel={() => setConfirmDiscard(null)}
+    />
+  );
+
   // ------------------------------------------------------------------ steps
 
   if (step === 'choose') {
@@ -215,7 +345,7 @@ export function ImportWizard() {
                   <span className="mt-0.5 block text-xs text-neutral-600">
                     {k === 'companies'
                       ? 'Salesforce Accounts template. Import these first.'
-                      : 'Salesforce Contacts template. Matched to companies by Account Name.'}
+                      : 'Salesforce Contacts template. Each Account Name is linked to a company for you to check.'}
                   </span>
                 </span>
               </label>
@@ -240,14 +370,16 @@ export function ImportWizard() {
     const firstData = table.slice(1).find((r) => !isInstructionsRow(r)) ?? [];
     return (
       <div>
-        <StepHeader fileName={fileName} kind={kind} onReset={reset} />
+        <StepHeader fileName={fileName} kind={kind} onReset={() => guard(reset)} />
+        {restored && <Notice tone="info">Your import in progress was kept while you were on other pages.</Notice>}
         {notice && <Notice tone="info">{notice}</Notice>}
         <div className="mb-4 space-y-1 text-sm text-neutral-700">
           <p>Check how each column will be imported. Columns are matched by their header. Change any that are wrong.</p>
           {prepared.instructionsLine && (
             <p className="flex items-center gap-1.5 text-neutral-600"><Icon name="check" className="h-4 w-4 text-ivey-700" />Row 2 is the template's instructions row and will be skipped.</p>
           )}
-          <p className="text-neutral-600">{prepared.rows.length} data row{prepared.rows.length === 1 ? '' : 's'} found.</p>
+          <p className="text-neutral-600">{plural(prepared.rows.length, 'data row', 'data rows')} found.</p>
+          {Object.keys(edits).length > 0 && <p className="text-neutral-600">Your edits to {plural(Object.keys(edits).length, 'row', 'rows')} are kept and will still apply on the next step.</p>}
         </div>
         <div className="overflow-x-auto rounded-lg border border-neutral-200">
           <table className="w-full min-w-[560px] text-left text-sm">
@@ -287,9 +419,10 @@ export function ImportWizard() {
           </div>
         )}
         <div className="mt-5 flex justify-between">
-          <Button variant="secondary" onClick={reset}>Choose a different file</Button>
+          <Button variant="secondary" onClick={() => guard(reset)}>Choose a different file</Button>
           <Button onClick={openPreview} disabled={prepared.mappingErrors.length > 0}>Review import</Button>
         </div>
+        {discardDialog}
       </div>
     );
   }
@@ -305,7 +438,7 @@ export function ImportWizard() {
               {result.created} {KIND_LABEL[kind].plural} added · {result.updated} updated · {result.unchanged} already up to date · {result.skipped} skipped
               {result.companiesCreated > 0 && ` · ${result.companiesCreated} new compan${result.companiesCreated === 1 ? 'y' : 'ies'} created`}
             </p>
-            <p className="mt-1 text-neutral-600">Values outside Lauren's lists were kept as written. Use the "Needs review" filter to find them.</p>
+            <p className="mt-1 text-neutral-600">Values outside Lauren's lists were kept as written. Use the "Needs review" filter to find them. The uploaded file itself was not changed.</p>
           </div>
         </div>
         <div className="mt-5 flex flex-wrap gap-3">
@@ -319,50 +452,71 @@ export function ImportWizard() {
   }
 
   // ---------------------------------------------------------------- preview
-  const companyGroups = kind === 'contacts' ? groupCompanies(rows, decisions) : [];
-  const unresolvedGroups = companyGroups.filter((g) => g.match.status !== 'matched' && g.match.status !== 'none');
-  const toWrite = counts.new + counts.update;
+  const editingIndex = editingLine === null ? -1 : rows.findIndex((r) => r.line === editingLine);
+  const editingRow = editingIndex >= 0 ? rows[editingIndex] : undefined;
+  const editingTarget = editingRow ? decisions[editingIndex].target : null;
+  const editingExisting = editingRow && editingTarget && editingTarget !== 'new'
+    ? (kind === 'companies' ? base.companies : base.contacts).find((x) => x.id === editingTarget)
+    : undefined;
+  const groupsByState = (s: GroupState) => groups.filter((g) => groupState(g) === s);
 
   return (
     <div>
-      <StepHeader fileName={fileName} kind={kind} onReset={reset} />
+      <StepHeader fileName={fileName} kind={kind} onReset={() => guard(reset)} />
+      {restored && <Notice tone="info">Your import in progress was kept while you were on other pages. Nothing has been imported yet.</Notice>}
       <p className="mb-4 text-sm text-neutral-700">
-        Nothing has been saved yet. Review what will happen, make any choices, then import.
-        Blank cells never clear existing values, and existing notes are only changed if you choose.
+        Nothing has been saved yet. Check the proposed actions, edit any row, then import.
+        Blank cells never clear existing values, existing notes only change if you choose, and the uploaded file itself is never changed.
       </p>
 
-      {unresolvedGroups.length > 0 && (
-        <section className="mb-6 rounded-lg border border-amber-300 bg-amber-50/70 p-4" aria-labelledby="company-matching">
-          <h3 id="company-matching" className="text-sm font-semibold text-amber-950">Company matching: {unresolvedGroups.length} Account Name{unresolvedGroups.length === 1 ? '' : 's'} need{unresolvedGroups.length === 1 ? 's' : ''} your choice</h3>
-          <p className="mt-0.5 text-xs text-amber-900">Contacts with an unresolved Account Name are skipped until you choose.</p>
-          <ul className="mt-3 space-y-3">
-            {unresolvedGroups.map((g) => (
-              <CompanyResolver
-                key={g.match.key}
+      <section aria-label="Import summary" className="mb-6 grid grid-cols-2 gap-3 sm:grid-cols-4">
+        <SummaryTile label="Ready to import" value={counts.ready} tone="ready" onClick={() => setFilter('ready')} />
+        {kind === 'contacts' && <SummaryTile label="Waiting for new companies to be accepted" value={counts.accept} tone={counts.accept ? 'accept' : 'muted'} onClick={() => setFilter('accept')} />}
+        <SummaryTile label="Need review" value={counts.review} tone={counts.review ? 'review' : 'muted'} onClick={() => setFilter('review')} />
+        <SummaryTile label="Already up to date or skipped" value={counts.unchanged + counts.skip} tone="muted" onClick={() => setFilter('skip')} />
+      </section>
+
+      {kind === 'contacts' && groups.length > 0 && (
+        <section className="mb-6 rounded-lg border border-neutral-200" aria-labelledby="company-links">
+          <div className="flex flex-wrap items-center justify-between gap-3 border-b border-neutral-100 px-4 py-3">
+            <div>
+              <h3 id="company-links" className="text-sm font-semibold text-neutral-950">Company links</h3>
+              <p className="text-xs text-neutral-600">
+                One decision per Account Name covers all its contacts. {groupsByState('ready').length + groupsByState('decided').length} ready ·{' '}
+                {plural(acceptable.length, 'new company', 'new companies')} to accept · {groupsByState('review').length} need review
+              </p>
+            </div>
+            {acceptable.length > 0 && (
+              <Button onClick={acceptAllNew} icon="check">Accept {acceptable.length === 1 ? 'the proposed new company' : `all ${acceptable.length} proposed new companies`}</Button>
+            )}
+          </div>
+          <ul className="divide-y divide-neutral-100">
+            {[...groupsByState('review'), ...groupsByState('accept'), ...groupsByState('decided'), ...groupsByState('ready')].map((g) => (
+              <CompanyLinkRow
+                key={g.key}
                 group={g}
-                value={companyDecisions[g.match.key] ?? null}
-                onChange={(v) => setCompanyDecisions((d) => ({ ...d, [g.match.key]: v }))}
-                companies={snapshot.companies}
+                state={groupState(g)}
+                decision={companyDecisions[g.key]}
+                contacts={rows.filter((r, i) => r.company?.key === g.key && decisions[i].include).length}
+                companies={base.companies}
+                otherGroups={groups.filter((o) => o.key !== g.key && o.match.status === 'new')}
+                onDecide={(d) => setCompany(g, d)}
+                onRename={(name) => renameAccount(g, name)}
               />
             ))}
           </ul>
         </section>
-      )}
-      {kind === 'contacts' && companyGroups.length > unresolvedGroups.length && (
-        <p className="mb-4 flex items-center gap-1.5 text-xs text-neutral-600">
-          <Icon name="check" className="h-3.5 w-3.5 text-ivey-700" />
-          {companyGroups.filter((g) => g.match.status === 'matched').length} Account Name{companyGroups.filter((g) => g.match.status === 'matched').length === 1 ? '' : 's'} matched an existing company.
-        </p>
       )}
 
       <div className="mb-4 flex flex-wrap gap-2" role="group" aria-label="Show rows">
         {(
           [
             ['all', 'All rows'],
-            ['new', 'New'],
-            ['update', 'Updates'],
+            ['ready', 'Ready'],
+            ...(kind === 'contacts' ? [['accept', 'Waiting for new companies'] as [Filter, string]] : []),
+            ['review', 'Need review'],
             ['conflict', 'Conflicts'],
-            ['choose', 'Needs your choice'],
+            ['edited', 'Edited'],
             ['unchanged', 'Already up to date'],
             ['skip', 'Skipped'],
             ['flagged', 'Flagged values'],
@@ -376,41 +530,69 @@ export function ImportWizard() {
             className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-sm font-medium ${filter === id ? 'border-ivey-700 bg-ivey-700 text-white' : 'border-neutral-300 bg-white text-neutral-700 hover:bg-neutral-50'}`}
           >
             {label}
-            <span className={`tabular-nums ${filter === id ? 'text-ivey-100' : (id === 'choose' || id === 'conflict') && counts[id] > 0 ? 'font-semibold text-amber-700' : 'text-neutral-500'}`}>{counts[id]}</span>
+            <span className={`tabular-nums ${filter === id ? 'text-ivey-100' : (id === 'review' || id === 'conflict' || id === 'accept') && counts[id] > 0 ? 'font-semibold text-amber-700' : 'text-neutral-500'}`}>{counts[id]}</span>
           </button>
         ))}
       </div>
 
       <ol className="space-y-3">
-        {visible.map(({ r, i, o }) => (
+        {visible.map(({ r, i, o, s }) => (
           <RowCard
             key={r.line}
             kind={kind}
             row={r}
             outcome={o}
+            state={s}
+            edited={!!edits[r.line]}
             decision={decisions[i]}
-            needsChoice={needsChoice(i)}
-            snapshot={snapshot}
-            companyDecision={r.company ? companyDecisions[r.company.key] ?? null : undefined}
+            snapshot={base}
+            companyLine={r.company && r.company.status !== 'none' ? describeLink(r, groupByKey.get(r.company.key), companyDecisions, base, groupByKey, groupState) : null}
             onDecision={(patch) => setDecision(i, patch)}
+            onEdit={() => setEditingLine(r.line)}
+            onRestore={() => saveRowEdits(r.line, null)}
           />
         ))}
         {visible.length === 0 && <li className="rounded-lg border border-dashed border-neutral-300 px-4 py-8 text-center text-sm text-neutral-600">No rows in this view.</li>}
       </ol>
 
       <div className="sticky bottom-0 -mx-5 mt-6 -mb-5 flex flex-wrap items-center justify-between gap-3 border-t border-neutral-200 bg-white/95 px-5 py-4 backdrop-blur">
-        <p className="text-sm text-neutral-700">
-          <strong className="font-semibold text-neutral-950">{counts.new}</strong> new · <strong className="font-semibold text-neutral-950">{counts.update}</strong> updated ·{' '}
-          {counts.unchanged} already up to date · {counts.skip + counts.choose} skipped
-          {counts.choose > 0 && <span className="text-amber-800"> ({counts.choose} waiting for your choice)</span>}
+        <p className="text-sm text-neutral-700" aria-live="polite">
+          <strong className="font-semibold text-neutral-950">{counts.ready}</strong> ready
+          {counts.accept > 0 && <span className="text-amber-800"> · {counts.accept} waiting for new companies</span>}
+          {counts.review > 0 && <span className="text-amber-800"> · {counts.review} need review</span>}
+          {' '}· {counts.unchanged} already up to date · {counts.skip} skipped
         </p>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
+          <Button variant="secondary" onClick={() => setStep('map')}>Back to columns</Button>
           <Button variant="secondary" icon="download" onClick={backupFirst}>Download backup first</Button>
-          <Button onClick={runImport} disabled={saving || toWrite === 0}>
-            {saving ? 'Importing…' : toWrite === 0 ? 'Nothing to import' : `Import ${toWrite} ${toWrite === 1 ? KIND_LABEL[kind].noun : KIND_LABEL[kind].plural}`}
+          <Button onClick={runImport} disabled={saving || counts.ready === 0}>
+            {saving ? 'Importing…' : counts.ready === 0 ? 'Nothing to import' : `Import ${counts.ready} ${counts.ready === 1 ? KIND_LABEL[kind].noun : KIND_LABEL[kind].plural}`}
           </Button>
         </div>
       </div>
+
+      <Modal
+        open={!!editingRow}
+        onClose={() => setEditingLine(null)}
+        title={editingRow ? `Edit row ${editingRow.line}: ${editingRow.label}` : 'Edit row'}
+        description="Changes apply only to this import, until you click Import. The uploaded file isn't changed."
+        size="xl"
+      >
+        {editingRow && (
+          <RowEditor
+            kind={kind}
+            row={editingRow}
+            mappedKeys={mapping.filter((k): k is string => !!k)}
+            original={originalCells(table, mapping, editingRow.line)}
+            pending={edits[editingRow.line] ?? {}}
+            existing={editingExisting}
+            companies={base.companies}
+            onSave={(cells) => { saveRowEdits(editingRow.line, cells); setEditingLine(null); }}
+            onCancel={() => setEditingLine(null)}
+          />
+        )}
+      </Modal>
+      {discardDialog}
     </div>
   );
 }
@@ -439,77 +621,191 @@ function Notice({ tone, children }: { tone: 'info' | 'warn'; children: ReactNode
   );
 }
 
-interface CompanyGroup {
-  match: CompanyMatch;
-  rows: number;
-}
-
-function groupCompanies(rows: PlanRow[], decisions: RowDecision[]): CompanyGroup[] {
-  const map = new Map<string, CompanyGroup>();
-  rows.forEach((r, i) => {
-    if (!r.company || r.errors.length || r.duplicateOfLine !== undefined || !decisions[i]?.include) return;
-    const g = map.get(r.company.key);
-    if (g) g.rows++;
-    else map.set(r.company.key, { match: r.company, rows: 1 });
-  });
-  return [...map.values()];
-}
-
-function CompanyResolver({ group, value, onChange, companies }: {
-  group: CompanyGroup;
-  value: CompanyDecision;
-  onChange: (v: CompanyDecision) => void;
-  companies: { id: string; name: string }[];
-}) {
-  const { match } = group;
-  const why =
-    match.status === 'ambiguous'
-      ? 'Several companies match this name.'
-      : match.status === 'possible'
-        ? 'A company with a similar name exists.'
-        : 'No company with this name exists yet.';
-  const others = [...companies].filter((c) => !match.candidates.some((m) => m.id === c.id)).sort((a, b) => a.name.localeCompare(b.name));
+function SummaryTile({ label, value, tone, onClick }: { label: string; value: number; tone: 'ready' | 'accept' | 'review' | 'muted'; onClick: () => void }) {
+  const tones = {
+    ready: 'border-ivey-200 bg-ivey-50/60 text-ivey-900',
+    accept: 'border-sky-200 bg-sky-50 text-sky-900',
+    review: 'border-amber-300 bg-amber-50 text-amber-950',
+    muted: 'border-neutral-200 bg-white text-neutral-800',
+  };
   return (
-    <li className="flex flex-wrap items-center justify-between gap-3 rounded-md bg-white px-3 py-2.5 ring-1 ring-amber-200">
-      <div className="min-w-0">
-        <p className="text-sm font-semibold text-neutral-900">“{match.accountName}”</p>
-        <p className="text-xs text-neutral-600">{why} Used by {group.rows} contact{group.rows === 1 ? '' : 's'}.</p>
+    <button type="button" onClick={onClick} className={`rounded-lg border px-3 py-2.5 text-left hover:shadow-xs ${tones[tone]}`}>
+      <span className="block text-xl leading-tight font-semibold tabular-nums">{value}</span>
+      <span className="block text-xs">{label}</span>
+    </button>
+  );
+}
+
+/** Plain-language company line for a contact row. */
+function describeLink(
+  row: PlanRow,
+  g: CompanyGroup | undefined,
+  decisions: Record<string, CompanyDecision>,
+  db: Database,
+  groupByKey: Map<string, CompanyGroup>,
+  groupState: (g: CompanyGroup) => GroupState,
+): ReactNode {
+  if (!g) return null;
+  const d = decisions[g.key];
+  const name = (id: string) => db.companies.find((c) => c.id === id)?.name ?? 'a company';
+  const state = groupState(g);
+  let what: ReactNode;
+  if (state === 'accept') what = <span className="font-medium text-sky-800">proposed new company “{g.accountName}”, waiting for your OK</span>;
+  else if (state === 'review') what = <span className="font-medium text-amber-800">needs review (see Company links)</span>;
+  else if (d === 'create') what = <>new company “{g.accountName}”</>;
+  else if (d === 'none') what = <>no company</>;
+  else if (typeof d === 'string' && d.startsWith(SAME_AS)) {
+    const target = groupByKey.get(d.slice(SAME_AS.length));
+    const resolved = resolveCompanyDecision(g.key, decisions).decision;
+    what = <>same company as “{target?.accountName}” ({resolved === 'create' ? 'new' : resolved && resolved !== 'none' ? name(resolved) : 'no company'})</>;
+  } else if (d) what = <>existing company “{name(d)}”{state === 'ready' ? ' (exact name)' : ''}</>;
+  return <>Account Name “{row.company?.accountName}” → {what}</>;
+}
+
+function CompanyLinkRow({ group, state, decision, contacts, companies, otherGroups, onDecide, onRename }: {
+  group: CompanyGroup;
+  state: GroupState;
+  decision: CompanyDecision;
+  contacts: number;
+  companies: Company[];
+  otherGroups: CompanyGroup[];
+  onDecide: (d: CompanyDecision) => void;
+  onRename: (name: string) => void;
+}) {
+  const [changing, setChanging] = useState(false);
+  const m = group.match;
+  const nameOf = (id: string) => companies.find((c) => c.id === id)?.name ?? 'a company';
+  const proposalText = (() => {
+    const p = group.proposal;
+    if (m.status === 'matched') return <>Linked to existing “{nameOf(m.companyId!)}”: exactly the same name.</>;
+    if (p === 'create') return <>Proposed: create new company “{group.accountName}”. No similar company exists. Only the name is filled in.</>;
+    if (typeof p === 'string' && p.startsWith(SAME_AS)) {
+      const o = group.similarInFile[0];
+      return <>Suggested: the same new company as “{o.accountName}”, also in this file. {o.reason} Please confirm.</>;
+    }
+    if (m.status === 'possible' && p) return <>Suggested: existing “{nameOf(p)}”. {m.candidates[0]?.reason} Please confirm.</>;
+    return <>Several companies could be this one: {m.candidates.map((c) => `“${c.label}”`).join(', ')}. Choose one, or create a new company.</>;
+  })();
+  const decidedText = (() => {
+    if (decision === 'create') return `Will create new company “${group.accountName}”.`;
+    if (decision === 'none') return 'Contacts will be imported without a company.';
+    if (typeof decision === 'string' && decision.startsWith(SAME_AS)) return `Same company as “${otherGroups.find((o) => o.key === decision.slice(SAME_AS.length))?.accountName ?? 'another Account Name'}”.`;
+    if (decision) return `Linked to existing “${nameOf(decision)}”.`;
+    return '';
+  })();
+  const chip = {
+    ready: ['Ready', 'bg-ivey-50 text-ivey-800 ring-ivey-200'],
+    decided: ['Decided', 'bg-ivey-50 text-ivey-800 ring-ivey-200'],
+    accept: ['Waiting for your OK', 'bg-sky-50 text-sky-800 ring-sky-200'],
+    review: ['Needs review', 'bg-amber-50 text-amber-900 ring-amber-300'],
+  }[state];
+
+  return (
+    <li className="px-4 py-3">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="min-w-0">
+          <p className="flex flex-wrap items-center gap-2 text-sm font-semibold text-neutral-950">
+            “{group.accountName}”
+            <Badge className={chip[1]}>{chip[0]}</Badge>
+            <span className="text-xs font-normal text-neutral-600">{plural(contacts, 'contact', 'contacts')}</span>
+          </p>
+          {group.spellings.length > 0 && <p className="text-xs text-neutral-500">Also written as {group.spellings.map((s) => `“${s}”`).join(', ')} (same apart from capitals or spacing).</p>}
+          <p className="mt-0.5 text-xs text-neutral-700">{state === 'decided' ? decidedText : proposalText}</p>
+        </div>
+        <div className="flex shrink-0 flex-wrap gap-2">
+          {(state === 'accept' || state === 'review') && group.proposal && (
+            <Button size="sm" onClick={() => onDecide(group.proposal)}>
+              {group.proposal === 'create' ? 'Accept' : group.proposal.startsWith(SAME_AS) ? 'Confirm same company' : `Use “${nameOf(group.proposal)}”`}
+            </Button>
+          )}
+          <Button size="sm" variant="secondary" aria-expanded={changing} onClick={() => setChanging((v) => !v)}>Change</Button>
+        </div>
       </div>
-      <select
-        aria-label={`Company for Account Name ${match.accountName}`}
-        value={value ?? ''}
-        onChange={(e) => onChange((e.target.value || null) as CompanyDecision)}
-        className={`${filterSelectClass} max-w-xs ${value ? '' : 'border-amber-500'}`}
-      >
-        <option value="">Choose…</option>
-        {match.candidates.length > 0 && (
-          <optgroup label="Suggested matches">
-            {match.candidates.map((c) => <option key={c.id} value={c.id}>Use “{c.label}”</option>)}
-          </optgroup>
-        )}
-        <optgroup label="Other options">
-          <option value="create">Create new company “{match.accountName}”</option>
-          <option value="none">Import contacts without a company</option>
-        </optgroup>
-        {others.length > 0 && (
-          <optgroup label="All companies">
-            {others.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
-          </optgroup>
-        )}
-      </select>
+      {changing && (
+        <CompanyLinkEditor
+          group={group}
+          decision={decision}
+          companies={companies}
+          otherGroups={otherGroups}
+          onApply={(d) => { onDecide(d); setChanging(false); }}
+          onRename={(name) => { onRename(name); setChanging(false); }}
+          onCancel={() => setChanging(false)}
+        />
+      )}
     </li>
   );
 }
 
-function RowCard({ kind, row, outcome, decision, needsChoice, snapshot, companyDecision, onDecision }: {
+function CompanyLinkEditor({ group, decision, companies, otherGroups, onApply, onRename, onCancel }: {
+  group: CompanyGroup;
+  decision: CompanyDecision;
+  companies: Company[];
+  otherGroups: CompanyGroup[];
+  onApply: (d: CompanyDecision) => void;
+  onRename: (name: string) => void;
+  onCancel: () => void;
+}) {
+  const suggested = group.match.candidates;
+  const initial = decision ?? group.proposal ?? '';
+  const isListed = (v: string) => suggested.some((c) => c.id === v) || v === group.match.companyId || ['create', 'none'].includes(v) || v.startsWith(SAME_AS);
+  const [choice, setChoice] = useState<string>(initial && !isListed(initial) ? 'other' : initial);
+  const [otherId, setOtherId] = useState(typeof initial === 'string' && companies.some((c) => c.id === initial) ? initial : '');
+  const [name, setName] = useState(group.accountName);
+  const sameTargets = otherGroups.filter((o) => o.match.status === 'new');
+  const option = (value: string, label: ReactNode, detail?: string) => (
+    <label key={value} className="flex cursor-pointer items-start gap-2.5 rounded-md px-2 py-1.5 hover:bg-neutral-50">
+      <input type="radio" name={`link-${group.key}`} value={value} checked={choice === value} onChange={() => setChoice(value)} className="mt-1 accent-ivey-700" />
+      <span className="text-sm text-neutral-900">{label}{detail && <span className="block text-xs text-neutral-600">{detail}</span>}</span>
+    </label>
+  );
+  const apply = () => onApply(choice === 'other' ? otherId || null : (choice || null) as CompanyDecision);
+  return (
+    <div className="mt-3 rounded-md border border-neutral-200 bg-neutral-50/60 p-3">
+      <fieldset>
+        <legend className="mb-1 text-xs font-semibold text-neutral-700">Link the contacts with Account Name “{group.accountName}” to:</legend>
+        {suggested.map((c) => option(c.id, <>Existing company “{c.label}”</>, c.reason))}
+        {group.match.status === 'matched' && option(group.match.companyId!, <>Existing company “{companies.find((c) => c.id === group.match.companyId)?.name}”</>, 'Exactly the same name.')}
+        {sameTargets.map((o) => option(SAME_AS + o.key, <>The same new company as “{o.accountName}” (also in this file)</>, similarNameReasonText(group, o)))}
+        {option('create', <>Create new company “{group.accountName}”</>, 'Only the name is filled in. Add other details later.')}
+        {option('other', <>Another existing company</>)}
+        {choice === 'other' && (
+          <select aria-label="Choose an existing company" value={otherId} onChange={(e) => setOtherId(e.target.value)} className={`${filterSelectClass} mt-1 ml-7 max-w-xs`}>
+            <option value="">Choose…</option>
+            {[...companies].sort((a, b) => a.name.localeCompare(b.name)).map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+          </select>
+        )}
+        {option('none', <>No company</>, 'Import these contacts without a company.')}
+      </fieldset>
+      <div className="mt-3 flex flex-wrap items-end gap-2 border-t border-neutral-200 pt-3">
+        <div className="min-w-[14rem] flex-1">
+          <TextField label="Or correct the Account Name for these contacts" value={name} onChange={setName} hint="Changes the name in this import only, for every contact that uses it. Matching runs again." />
+        </div>
+        <Button size="sm" variant="secondary" disabled={!name.trim() || name.trim() === group.accountName} onClick={() => onRename(name)}>Rename</Button>
+      </div>
+      <div className="mt-3 flex justify-end gap-2">
+        <Button size="sm" variant="secondary" onClick={onCancel}>Cancel</Button>
+        <Button size="sm" onClick={apply} disabled={!choice || (choice === 'other' && !otherId)}>Apply</Button>
+      </div>
+    </div>
+  );
+}
+
+function similarNameReasonText(group: CompanyGroup, other: CompanyGroup): string | undefined {
+  return group.similarInFile.find((s) => s.key === other.key)?.reason || undefined;
+}
+
+function RowCard({ kind, row, outcome, state, edited, decision, snapshot, companyLine, onDecision, onEdit, onRestore }: {
   kind: ImportKind;
   row: PlanRow;
   outcome: RowOutcome;
+  state: RowState;
+  edited: boolean;
   decision: RowDecision;
-  needsChoice: boolean;
-  snapshot: { companies: { id: string; name: string }[]; contacts: { id: string; firstName: string; lastName: string }[] };
-  companyDecision: CompanyDecision | undefined;
+  snapshot: Database;
+  companyLine: ReactNode;
   onDecision: (patch: Partial<RowDecision>) => void;
+  onEdit: () => void;
+  onRestore: () => void;
 }) {
   const blocked = row.errors.length > 0 || row.duplicateOfLine !== undefined;
   const existingName = (id: string) =>
@@ -517,68 +813,65 @@ function RowCard({ kind, row, outcome, decision, needsChoice, snapshot, companyD
       ? snapshot.companies.find((c) => c.id === id)?.name
       : (() => {
           const c = snapshot.contacts.find((x) => x.id === id);
-          return c ? `${c.firstName} ${c.lastName}` : undefined;
+          return c ? fullName(c) : undefined;
         })();
 
-  const badge = needsChoice
-    ? { text: 'Needs your choice', tone: 'bg-amber-50 text-amber-900 ring-amber-300' }
-    : outcome.action === 'create'
-      ? { text: 'New', tone: 'bg-ivey-50 text-ivey-800 ring-ivey-200' }
-      : outcome.action === 'update'
-        ? changesSomething(outcome, decision)
-          ? { text: outcome.changes.some((c) => c.kind === 'conflict') ? 'Update · has conflicts' : 'Update', tone: 'bg-sky-50 text-sky-800 ring-sky-200' }
-          : { text: 'Conflicts · keeping current values', tone: 'bg-amber-50 text-amber-900 ring-amber-300' }
-        : outcome.action === 'unchanged'
-          ? { text: 'Already up to date', tone: 'bg-neutral-100 text-neutral-700 ring-neutral-200' }
-          : { text: 'Skipped', tone: blocked ? 'bg-red-50 text-red-800 ring-red-200' : 'bg-neutral-100 text-neutral-700 ring-neutral-200' };
+  const badge =
+    state === 'review'
+      ? { text: 'Needs review', tone: 'bg-amber-50 text-amber-900 ring-amber-300' }
+      : state === 'accept'
+        ? { text: 'Waiting for new company', tone: 'bg-sky-50 text-sky-800 ring-sky-200' }
+        : outcome.action === 'create'
+          ? { text: 'New', tone: 'bg-ivey-50 text-ivey-800 ring-ivey-200' }
+          : outcome.action === 'update'
+            ? changesSomething(outcome, decision)
+              ? { text: outcome.changes.some((c) => c.kind === 'conflict') ? 'Update · has conflicts' : 'Update', tone: 'bg-sky-50 text-sky-800 ring-sky-200' }
+              : { text: 'Conflicts · keeping current values', tone: 'bg-amber-50 text-amber-900 ring-amber-300' }
+            : outcome.action === 'unchanged'
+              ? { text: 'Already up to date', tone: 'bg-neutral-100 text-neutral-700 ring-neutral-200' }
+              : { text: 'Skipped', tone: blocked ? 'bg-red-50 text-red-800 ring-red-200' : 'bg-neutral-100 text-neutral-700 ring-neutral-200' };
 
   const fields = fieldsFor(kind);
   const newValues = Object.entries(row.values).filter(([k]) => k !== 'id');
 
   return (
-    <li className={`rounded-lg border bg-white p-4 ${needsChoice ? 'border-amber-300' : blocked ? 'border-red-200' : 'border-neutral-200'}`}>
+    <li className={`rounded-lg border bg-white p-4 ${state === 'review' ? 'border-amber-300' : blocked ? 'border-red-200' : 'border-neutral-200'}`}>
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0">
           <p className="flex flex-wrap items-center gap-2 text-sm font-semibold text-neutral-950">
             <span className="text-xs font-normal text-neutral-500 tabular-nums">Row {row.line}</span>
             {row.label}
             <Badge className={badge.tone}>{badge.text}</Badge>
+            {edited && <Badge className="bg-violet-50 text-violet-800 ring-violet-200">Edited</Badge>}
           </p>
           {row.match.status === 'matched' && decision.target !== 'new' && (
-            <p className="mt-0.5 text-xs text-neutral-600">Matches existing {kind === 'companies' ? 'company' : 'contact'} “{existingName(row.match.matchId!)}” ({row.match.reason})</p>
+            <p className="mt-0.5 text-xs text-neutral-600">Updates existing {kind === 'companies' ? 'company' : 'contact'} “{existingName(row.match.matchId!)}” ({row.match.reason})</p>
           )}
-          {kind === 'contacts' && row.company && row.company.status !== 'none' && (
-            <p className="mt-0.5 text-xs text-neutral-600">
-              Account Name “{row.company.accountName}” →{' '}
-              {companyDecision === 'create'
-                ? 'new company'
-                : companyDecision === 'none'
-                  ? 'no company'
-                  : companyDecision
-                    ? snapshot.companies.find((c) => c.id === companyDecision)?.name
-                    : <span className="font-medium text-amber-800">not matched yet</span>}
-            </p>
+          {companyLine && <p className="mt-0.5 text-xs text-neutral-600">{companyLine}</p>}
+        </div>
+        <div className="flex shrink-0 flex-wrap items-center gap-3">
+          {edited && <button type="button" onClick={onRestore} className="text-xs font-medium text-ivey-700 hover:underline" aria-label={`Restore row ${row.line} as in the file`}>Restore original</button>}
+          <Button size="sm" variant="secondary" icon="pencil" onClick={onEdit} aria-label={`Edit row ${row.line}`}>Edit</Button>
+          {!blocked && (
+            <label className="flex items-center gap-2 text-sm text-neutral-700">
+              <input type="checkbox" checked={decision.include} onChange={(e) => onDecision({ include: e.target.checked })} className="h-4 w-4 accent-ivey-700" />
+              Include
+            </label>
           )}
         </div>
-        {!blocked && (
-          <label className="flex items-center gap-2 text-sm text-neutral-700">
-            <input type="checkbox" checked={decision.include} onChange={(e) => onDecision({ include: e.target.checked })} className="h-4 w-4 accent-ivey-700" />
-            Include
-          </label>
-        )}
       </div>
 
       {row.errors.map((e) => (
-        <p key={e} className="mt-2 flex items-center gap-1.5 text-sm font-medium text-red-700"><Icon name="alert" className="h-4 w-4" />{e} This row won't be imported.</p>
+        <p key={e} className="mt-2 flex items-center gap-1.5 text-sm font-medium text-red-700"><Icon name="alert" className="h-4 w-4" />{e} Edit the row to fix it, or it won't be imported.</p>
       ))}
       {row.duplicateOfLine !== undefined && (
-        <p className="mt-2 text-sm text-neutral-700">Same {kind === 'companies' ? 'company' : 'contact'} as row {row.duplicateOfLine} in this file, so it's skipped to avoid a duplicate.</p>
+        <p className="mt-2 text-sm text-neutral-700">Same {kind === 'companies' ? 'company' : 'contact'} as row {row.duplicateOfLine} in this file, so it's skipped to avoid a duplicate. Edit it if it's actually a different {kind === 'companies' ? 'company' : 'person'}.</p>
       )}
 
       {!blocked && decision.include && (row.match.status === 'possible' || row.match.status === 'ambiguous') && (
         <div className="mt-3 flex flex-wrap items-center gap-3 rounded-md bg-amber-50 px-3 py-2.5 text-sm">
           <span className="text-amber-950">
-            {row.match.status === 'ambiguous' ? 'Several existing records could be this one.' : `Possible match: ${row.match.reason}.`} Choose what to do:
+            {row.match.status === 'ambiguous' ? 'Several existing records could be this one.' : `Possible match: ${row.match.reason}`} Choose what to do:
           </span>
           <select
             aria-label={`Match for row ${row.line}`}
@@ -587,7 +880,9 @@ function RowCard({ kind, row, outcome, decision, needsChoice, snapshot, companyD
             className={`${filterSelectClass} max-w-sm`}
           >
             <option value="">Choose…</option>
-            {row.match.candidates.map((c) => <option key={c.id} value={c.id}>Update existing “{c.label}”</option>)}
+            {row.match.candidates.map((c) => (
+              <option key={c.id} value={c.id}>{c.id.startsWith(SAME_ROW) ? `Same company as ${c.label}: skip this row` : `Update existing “${c.label}”`}</option>
+            ))}
             <option value="new">Add as a new {kind === 'companies' ? 'company' : 'contact'}</option>
           </select>
         </div>
@@ -605,7 +900,7 @@ function RowCard({ kind, row, outcome, decision, needsChoice, snapshot, companyD
       )}
 
       {outcome.action === 'update' && (
-        <ChangeTable changes={outcome.changes} decision={decision} onChoice={(key, choice) => onDecision({ conflicts: { ...decision.conflicts, [key]: choice } })} companyName={(id) => snapshot.companies.find((c) => c.id === id)?.name} />
+        <ChangeTable changes={outcome.changes} decision={decision} edited={edited} onChoice={(key, choice) => onDecision({ conflicts: { ...decision.conflicts, [key]: choice } })} companyName={(id) => snapshot.companies.find((c) => c.id === id)?.name} />
       )}
 
       {row.unknown.length > 0 && (
@@ -623,9 +918,10 @@ function RowCard({ kind, row, outcome, decision, needsChoice, snapshot, companyD
   );
 }
 
-function ChangeTable({ changes, decision, onChoice, companyName }: {
+function ChangeTable({ changes, decision, edited, onChoice, companyName }: {
   changes: FieldChange[];
   decision: RowDecision;
+  edited: boolean;
   onChoice: (key: string, choice: ConflictChoice) => void;
   companyName: (id: string) => string | undefined;
 }) {
@@ -636,8 +932,8 @@ function ChangeTable({ changes, decision, onChoice, companyName }: {
         <thead className="bg-neutral-50 text-neutral-600">
           <tr>
             <th scope="col" className="px-3 py-2 font-semibold">Field</th>
-            <th scope="col" className="px-3 py-2 font-semibold">Current</th>
-            <th scope="col" className="px-3 py-2 font-semibold">In file</th>
+            <th scope="col" className="px-3 py-2 font-semibold">Current (in the workspace)</th>
+            <th scope="col" className="px-3 py-2 font-semibold">Proposed ({edited ? 'file, with your edits' : 'from the file'})</th>
             <th scope="col" className="px-3 py-2 font-semibold">What happens</th>
           </tr>
         </thead>
@@ -666,5 +962,110 @@ function ChangeTable({ changes, decision, onChoice, companyName }: {
         </tbody>
       </table>
     </div>
+  );
+}
+
+/**
+ * Edit form for one pending row: every mapped field, checked live exactly as the import checks it.
+ * For a row that updates an existing record, each field shows the value currently in the workspace.
+ */
+function RowEditor({ kind, row, mappedKeys, original, pending, existing, companies, onSave, onCancel }: {
+  kind: ImportKind;
+  row: PlanRow;
+  mappedKeys: string[];
+  original: Record<string, string>;
+  pending: Record<string, string>;
+  existing: Company | Contact | undefined;
+  companies: Company[];
+  onSave: (cells: Record<string, string> | null) => void;
+  onCancel: () => void;
+}) {
+  const fields = fieldsFor(kind).filter((f) => mappedKeys.includes(f.key) && f.type !== 'id');
+  const [values, setValues] = useState<Record<string, string | string[]>>(() => {
+    const v: Record<string, string | string[]> = {};
+    for (const f of fields) {
+      if (f.type === 'single') v[f.key] = (row.values[f.key] as string) ?? '';
+      else if (f.type === 'multi') v[f.key] = (row.values[f.key] as string[]) ?? [];
+      else v[f.key] = pending[f.key] ?? original[f.key] ?? '';
+    }
+    return v;
+  });
+  const toCells = () => Object.fromEntries(fields.map((f) => [f.key, Array.isArray(values[f.key]) ? (values[f.key] as string[]).join('; ') : String(values[f.key] ?? '')]));
+  const check = parseRowCells(kind, row.line, toCells());
+  const messageFor = (f: FieldDef) =>
+    check.errors.find((e) => e.startsWith(`${f.label} `)) ?? check.warnings.find((w) => w.startsWith(`${f.label} “`));
+  const set = (key: string) => (v: string | string[]) => setValues((all) => ({ ...all, [key]: v }));
+  const currentText = (f: FieldDef): string | undefined => {
+    if (!existing) return undefined;
+    if (f.type === 'company') {
+      const id = (existing as Contact).companyId;
+      return id ? companies.find((c) => c.id === id)?.name ?? '—' : 'No company';
+    }
+    return show(getPath(existing, f.key) as Value | null);
+  };
+  const hint = (f: FieldDef, extra?: string) => {
+    const cur = currentText(f);
+    const parts = [extra, cur !== undefined ? `In the workspace now: ${cur}` : undefined].filter(Boolean);
+    return parts.length ? parts.join(' · ') : undefined;
+  };
+
+  function submit(e: FormEvent) {
+    e.preventDefault();
+    onSave(toCells());
+  }
+
+  return (
+    <form onSubmit={submit} noValidate>
+      {existing && (
+        <p className="mb-4 rounded-md border border-sky-200 bg-sky-50 px-3 py-2 text-xs text-sky-950">
+          This row updates an existing {kind === 'companies' ? 'company' : 'contact'}. Under each field you'll see what the workspace holds now.
+          After saving, the review lists each difference, and conflicting values keep the current value unless you choose otherwise.
+        </p>
+      )}
+      <div className="grid grid-cols-1 gap-x-4 gap-y-5 sm:grid-cols-2">
+        {fields.map((f) => {
+          const err = messageFor(f);
+          const error = err && check.errors.includes(err) ? err : undefined;
+          const warning = err && !error ? err : undefined;
+          if (f.type === 'single') {
+            return <SelectField key={f.key} label={f.label} value={values[f.key] as string} onChange={set(f.key)} options={picklist(f.options ?? [])} hint={hint(f)} />;
+          }
+          if (f.type === 'multi') {
+            const chosen = values[f.key] as string[];
+            const extra = chosen.filter((v) => !(f.options ?? []).includes(v));
+            return (
+              <CheckboxGroupField key={f.key} className="sm:col-span-2" label={f.label} options={[...(f.options ?? []), ...extra]} value={chosen} onChange={set(f.key)} columns={3}
+                hint={hint(f, extra.length ? `Not in Lauren's list (kept, flagged): ${extra.join(', ')}` : undefined)} />
+            );
+          }
+          if (f.type === 'longtext') {
+            return <TextAreaField key={f.key} className="sm:col-span-2" label={f.label} value={values[f.key] as string} onChange={set(f.key)} rows={3}
+              hint={hint(f, existing ? 'Existing notes stay as they are unless you choose otherwise in the review.' : undefined)} />;
+          }
+          return (
+            <TextField
+              key={f.key}
+              label={f.label}
+              required={f.required}
+              value={values[f.key] as string}
+              onChange={set(f.key)}
+              error={error}
+              placeholder={f.type === 'date' ? 'YYYY-MM-DD' : f.type === 'company' ? 'Leave blank for no company' : undefined}
+              hint={warning ?? hint(f, f.type === 'company' ? 'Contacts with the same Account Name are linked to the same company.' : undefined)}
+            />
+          );
+        })}
+      </div>
+      {check.errors.length > 0 && (
+        <p role="alert" className="mt-4 text-sm font-medium text-red-700">{check.errors.join(' ')} The row can be saved, but it won't be imported until this is fixed.</p>
+      )}
+      <div className="sticky bottom-0 -mx-6 mt-6 -mb-5 flex flex-wrap justify-between gap-2 border-t border-neutral-100 bg-neutral-50 px-6 py-4">
+        <Button variant="ghost" onClick={() => onSave(null)} disabled={Object.keys(pending).length === 0}>Restore original row</Button>
+        <span className="flex gap-2">
+          <Button variant="secondary" onClick={onCancel}>Cancel</Button>
+          <Button type="submit">Save edits</Button>
+        </span>
+      </div>
+    </form>
   );
 }
