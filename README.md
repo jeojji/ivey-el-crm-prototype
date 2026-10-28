@@ -35,7 +35,7 @@ Each person's data lives in their own browser, so nothing you add is seen by tea
   3. Make and test your change (`npm run dev`), then check it builds: `npm run build`.
   4. Save and upload it: `git add -A`, `git commit -m "What you changed"`, `git push -u origin your-name/short-description`.
   5. On GitHub, click **Compare & pull request**, describe the change, and ask a teammate to review before merging.
-- To push branches, you need to be added as a collaborator on the repository (ask Sally / `jeojji`).
+- To push branches, you need to be added as a collaborator on the repository (ask the repository owner, `jeojji`).
 - `CLAUDE.md` has the project rules, the data model and how the code is organized. Read it before changing
   imports, the AI features or how data is stored. `REQUIREMENTS.md` explains how Lauren's fields map to the app.
 - The optional local AI (`SETUP-LOCAL-AI.md`) was set up and tested on a Mac. Everything else works on
